@@ -71,7 +71,7 @@ Where Env is either `dev`, `test`, `acc` or `prod` and region is the regioncode 
 They are used in lowercase, the config is in PascalCase
 
 Inside this cosmosdb you can have your collections like `{ObjectType}Events` & `{ObjectType}s`
-The events collection is for eventstores.  See the shared library to be used with these templates.
+The events collection is for eventstores.  See the shared library to be used with these templates. (https://github.com/sandromastronardi/CloudInfra_Shared_Libraries)
 
 Collections are made with the ARM template in the folder CollectionsTemplate under the CosmosDB project.
 
