@@ -1,0 +1,1 @@
+.\Deploy-AzureResourceGroup.ps1 -TemplateParametersFile .\azuredeploy.parameters.json -ResourceGroupLocation "West Europe"

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environment": {
+      "value": "Prod"
+    },
+    "alternateRegions":{
+      "value":[
+        {
+          "location":"WestEurope",
+          "isZoneRedundant":false
+        },
+        {
+          "location":"WestUs",
+          "isZoneRedundant":false
+        }
+      ]
+    }
+    ,"maxStalenessPrefix": {
+      "value": 100
+    },
+    "maxIntervalInSeconds":{
+      "value":5
+    },
+    "multipleWriteLocations":{
+      "value":true
+    },
+    "databases": {
+      "value": [
+        {
+          "name": "CompanyName",
+          "sharedThroughput": 400
+        }
+      ]
+    }
+  }
+}

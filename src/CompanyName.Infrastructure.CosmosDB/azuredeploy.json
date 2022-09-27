@@ -1,0 +1,313 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"environment": {
+			"type": "string",
+			"allowedValues": [ "Dev", "Test", "Acc", "Prod" ]
+		},
+		"developerSuffix": {
+			"type": "string",
+			"defaultValue": ""
+		},
+		"servicePrefix": {
+			"type": "string",
+			"defaultValue": "CompanyName-"
+		},
+		"accountName": {
+			"type": "string",
+			"defaultValue": "",
+			"metadata": {
+				"description": "Cosmos DB account name"
+			}
+		},
+		"location": {
+			"type": "string",
+			"defaultValue": "[resourceGroup().location]",
+			"metadata": {
+				"description": "Location for the Cosmos DB account."
+			}
+		},
+		"alternateRegions": {
+			"type": "array",
+			"defaultValue": [
+				{
+					"location":"WestEurope",
+					"isZoneRedundant":false
+				}
+			],
+			"metadata": {
+				"description": "The regions to where the data is replicated (array of objects with location and isZoneRedundant)"
+			}
+		},
+		"enableFreeTier": {
+			"type": "bool",
+			"defaultValue":true,
+			"allowedValues": [
+				true,false
+			],
+			"metadata": {
+				"description": "description"
+			}
+		},
+		"api": {
+			"type": "string",
+			"defaultValue": "Sql",
+			"allowedValues": [
+				"Sql",
+				"MongoDB",
+				"Cassandra",
+				"Gremlin",
+				"Table"
+			],
+			"metadata": {
+				"description": "Cosmos DB account type."
+			}
+		},
+		"defaultConsistencyLevel": {
+			"type": "string",
+			"defaultValue": "Session",
+			"allowedValues": [
+				"Eventual",
+				"ConsistentPrefix",
+				"Session",
+				"BoundedStaleness",
+				"Strong"
+			],
+			"metadata": {
+				"description": "The default consistency level of the Cosmos DB account."
+			}
+		},
+		"maxStalenessPrefix": {
+			"type": "int",
+			"defaultValue": 100000,
+			"minValue": 10,
+			"maxValue": 2147483647,
+			"metadata": {
+				"description": "Max stale requests. Required for BoundedStaleness. Valid ranges, Single Region: 10 to 1000000. Multi Region: 100000 to 1000000."
+			}
+		},
+		"maxIntervalInSeconds": {
+			"type": "int",
+			"defaultValue": 300,
+			"minValue": 5,
+			"maxValue": 86400,
+			"metadata": {
+				"description": "Max lag time (seconds). Required for BoundedStaleness. Valid ranges, Single Region: 5 to 84600. Multi Region: 300 to 86400."
+			}
+		},
+		"multipleWriteLocations": {
+			"type": "bool",
+			"defaultValue": false,
+			"allowedValues": [
+				true,
+				false
+			],
+			"metadata": {
+				"description": "Enable multi-master to make all regions writable."
+			}
+		},
+		"automaticFailover": {
+			"type": "bool",
+			"defaultValue": true,
+			"allowedValues": [
+				true,
+				false
+			],
+			"metadata": {
+				"description": "Enable automatic failover for regions. Ignored when Multi-Master is enabled"
+			}
+		},
+		"databases": {
+			"type": "array",
+			"defaultValue":[{
+				"name":"CompanyName",
+				"sharedThroughput":400
+			}],
+			"metadata": {
+				"description": "List of databases to create by default"
+			}
+		}
+	},
+	"variables": {
+		"accountName": "[concat(parameters('servicePrefix'),if(equals(parameters('environment'),'Prod'),'-',concat(parameters('environment'),parameters('developerSuffix'),'-')),parameters('api'),if(equals(length(parameters('accountName')),0),'',concat('-',parameters('accountName'))))]",
+		"vaultAccountPrefix": "[concat(parameters('servicePrefix'),parameters('api'),if(equals(length(parameters('accountName')),0),'',concat('-',parameters('accountName'))))]",
+		"accountNameLower": "[tolower(variables('accountName'))]",
+		"globalKeyVault":"[concat('Comp',parameters('environment'),'-main-Global')]",
+		"apiType": {
+			"Sql": {
+				"kind": "GlobalDocumentDB",
+				"capabilities": [ ]
+			},
+			"MongoDB": {
+				"kind": "MongoDB",
+				"capabilities": [ ]
+			},
+			"Cassandra": {
+				"kind": "GlobalDocumentDB",
+				"capabilities": [
+					{
+						"name": "EnableCassandra"
+					}
+				]
+			},
+			"Gremlin": {
+				"kind": "GlobalDocumentDB",
+				"capabilities": [
+					{
+						"name": "EnableGremlin"
+					}
+				]
+			},
+			"Table": {
+				"kind": "GlobalDocumentDB",
+				"capabilities": [
+					{
+						"name": "EnableTable"
+					}
+				]
+			}
+		},
+		"consistencyPolicy": {
+			"Eventual": {
+				"defaultConsistencyLevel": "Eventual"
+			},
+			"ConsistentPrefix": {
+				"defaultConsistencyLevel": "ConsistentPrefix"
+			},
+			"Session": {
+				"defaultConsistencyLevel": "Session"
+			},
+			"BoundedStaleness": {
+				"defaultConsistencyLevel": "BoundedStaleness",
+				"maxStalenessPrefix": "[parameters('maxStalenessPrefix')]",
+				"maxIntervalInSeconds": "[parameters('maxIntervalInSeconds')]"
+			},
+			"Strong": {
+				"defaultConsistencyLevel": "Strong"
+			}
+		},
+		"locations":{
+			"copy":[
+				{
+					"name":"list",
+					"count":"[length(parameters('alternateRegions'))]",
+					"input":{
+						"locationName":"[parameters('alternateRegions')[copyIndex('list')].location]",
+						"isZoneRedundant":"[parameters('alternateRegions')[copyIndex('list')].isZoneRedundant]",
+						"failoverPriority":"[copyIndex('list')]"
+					}
+				}
+			]
+		}
+	},
+	"resources": [
+		{
+			"type": "Microsoft.DocumentDB/databaseAccounts",
+			"name": "[variables('accountNameLower')]",
+			"apiVersion": "2020-06-01-preview",
+			"location": "[parameters('location')]",
+			"kind": "[variables('apiType')[parameters('api')].kind]",
+			"properties": {
+				"consistencyPolicy": "[variables('consistencyPolicy')[parameters('defaultConsistencyLevel')]]",
+				"locations": "[variables('locations').list]",
+				"databaseAccountOfferType": "Standard",
+				"enableFreeTier":"[parameters('enableFreeTier')]",
+				"enableAutomaticFailover": "[parameters('automaticFailover')]",
+				"capabilities": "[variables('apiType')[parameters('api')].capabilities]",
+				"enableMultipleWriteLocations": "[parameters('multipleWriteLocations')]",
+                "backupPolicy": {
+                    "type": "Periodic",
+                    "periodicModeProperties": {
+                        "backupIntervalInMinutes": 240,
+                        "backupRetentionIntervalInHours": 8
+                    }
+                }
+			},
+			"tags": {
+				"CosmosAccountType": "[if(or(equals(parameters('environment'),'Prod'),equals(parameters('environment'),'Acc')),'Production','Non-Production')]",
+				"hidden-cosmos-mmspecial": "",
+				"defaultExperience":"[parameters('api')]"
+			}
+		},
+        {
+			"copy": {
+				"name":"multipleDatabases",
+				"count":"[length(parameters('databases'))]",
+				"mode": "Parallel"
+			},
+            "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
+            "apiVersion": "2020-06-01-preview",
+            "name": "[concat(variables('accountNameLower'), '/', parameters('databases')[copyIndex()].name)]",
+            "dependsOn": [
+                "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('accountNameLower'))]"
+            ],
+            "properties": {
+                "resource": {
+                    "id": "[parameters('databases')[copyIndex()].name]"
+                },
+                "options": {
+					"throughput": "[parameters('databases')[copyIndex()].sharedThroughput]"
+				}
+            },
+			"tags": {
+				"locationCode": "Global",
+				"environment": "[parameters('environment')]"
+			}
+        },
+		{
+
+			"type": "Microsoft.KeyVault/vaults/secrets",
+			"apiVersion": "2019-09-01",
+			"name": "[concat(variables('globalKeyVault'), '/', variables('vaultAccountPrefix'), '-CosmosConnectionString')]",
+			"location": "[parameters('location')]",
+			"dependsOn": [
+				"[concat('Microsoft.DocumentDB/databaseAccounts/',variables('accountNameLower'))]"
+			],
+			"properties": {/* issue with most recent version https://github.com/Azure/azure-rest-api-specs/issues/11378 */
+				"value": "[listConnectionStrings(resourceId('Microsoft.DocumentDB/databaseAccounts/', variables('accountNameLower')),'2020-04-01').connectionStrings[0].connectionString]",
+				"contentType":"text/plain"
+			},
+			"tags": {
+				"locationCode": "Global",
+				"environment": "[parameters('environment')]"
+			}
+		},
+		{
+
+			"type": "Microsoft.KeyVault/vaults/secrets",
+			"apiVersion": "2019-09-01",
+			"name": "[concat(variables('globalKeyVault'), '/', variables('vaultAccountPrefix'), '-CosmosKey')]",
+			"location": "[parameters('location')]",
+			"dependsOn": [
+				"[concat('Microsoft.DocumentDB/databaseAccounts/',variables('accountNameLower'))]"
+			],
+			"properties": {
+				"value": "[listKeys(resourceId('Microsoft.DocumentDB/databaseAccounts/', variables('accountNameLower')),'2020-04-01').primaryMasterKey]",
+				"contentType":"text/plain"
+			},
+			"tags": {
+				"locationCode": "Global",
+				"environment": "[parameters('environment')]"
+			}
+		},
+		{
+
+			"type": "Microsoft.KeyVault/vaults/secrets",
+			"apiVersion": "2019-09-01",
+			"name": "[concat(variables('globalKeyVault'), '/', variables('vaultAccountPrefix'), '-CosmosEndpoint')]",
+			"location": "[parameters('location')]",
+			"dependsOn": [
+				"[concat('Microsoft.DocumentDB/databaseAccounts/',variables('accountNameLower'))]"
+			],
+			"properties": {
+				"value": "[reference(resourceId('Microsoft.DocumentDb/databaseAccounts/', variables('accountNameLower'))).documentEndpoint]",
+				"contentType":"text/plain"
+			},
+			"tags": {
+				"locationCode": "Global",
+				"environment": "[parameters('environment')]"
+			}
+		}
+	]
+}

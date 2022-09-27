@@ -1,0 +1,50 @@
+# ASP.NET Core (.NET Framework)
+# Build and test ASP.NET Core projects targeting the full .NET Framework.
+# Add steps that publish symbols, save build artifacts, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/dotnet-core
+
+trigger:
+- master
+
+pool: #WinPool
+  vmImage: 'windows-latest'
+
+variables:
+  solution: '**/*.sln'
+  buildPlatform: 'Any CPU'
+  buildConfiguration: 'Release'
+  NUGET_PACKAGES: '$(Pipeline.Workspace)/.nuget/packages'
+
+steps:
+
+- task: Npm@1
+  displayName: Install JsonLint
+  inputs:
+    command: 'custom'
+    customCommand: 'install @bencuk/jsonlint -g'
+
+- task: CmdLine@2
+  displayName: Validate All Json
+  inputs:
+    script: "CheckJson.cmd"
+    workingDirectory: '$(System.DefaultWorkingDirectory)'    
+
+- task: CopyFiles@2
+  displayName: 'Copy ARM template files'
+  inputs:
+    SourceFolder: '$(System.DefaultWorkingDirectory)/src/'
+    Contents: |
+      **/azuredeploy.json
+      **/azuredeploy.*.parameters.json
+      **/azuredeploy.parameters.*.json
+      **/azuredeploy.parameters.json
+      !**/local.settings.json
+    TargetFolder: '$(Build.ArtifactStagingDirectory)/packages/ARM'
+    CleanTargetFolder: true
+    OverWrite: true
+
+- task: PublishPipelineArtifact@1
+  displayName: 'Publish ARM Artifacts'
+  inputs:
+    path: $(Build.ArtifactStagingDirectory)/packages/ARM
+    artifact: ARM

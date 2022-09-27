@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environment": {
+      "type": "string",
+      "allowedValues": [ "Dev", "Test", "Staging", "Prod" ]
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]"
+    },
+    "locationCode": {
+      "type": "string"
+    },
+    "developerSuffix": {
+      "type": "string",
+      "defaultValue": ""
+    },
+    "servicePrefix": {
+      "type": "string",
+      "defaultValue": "CompanyName-"
+    }
+  },
+  "variables": {
+    "serviceNamePrefix": "[concat(parameters('servicePrefix'),parameters('environment'),parameters('developerSuffix'),'-')]",
+    "tags": {
+      "locationCode": "[parameters('locationCode')]",
+      "environment": "[parameters('environment')]"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.EventGrid/domains",
+      "location": "[parameters('location')]",
+      "apiVersion": "2020-06-01",
+      "name": "[concat(variables('serviceNamePrefix'),parameters('locationCode'))]",
+      "tags": "[variables('tags')]",
+      "properties": {
+        "eventDeliverySchema": "CloudEventV01Schema",
+        "inputSchema": "CloudEventSchemaV1_0"
+      }
+    }
+  ],
+  "outputs": {
+    "eventGridUrl": {
+      "type": "string",
+      "value": "[concat(reference(concat(variables('serviceNamePrefix'),parameters('locationCode'))).endpoint,'?api-version=2018-01-01')]"
+    },
+    "eventGridKey": {
+      "type": "string",
+      "value": "[listKeys(resourceId('Microsoft.EventGrid/domains',concat(variables('serviceNamePrefix'),parameters('locationCode'))), '2020-06-01').key1]"
+    }
+  }
+}

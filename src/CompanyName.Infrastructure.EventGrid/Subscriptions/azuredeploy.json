@@ -1,0 +1,228 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "serviceType": {
+      "type": "string",
+      "metadata": {
+        "description": "The type of this microservice function app. (Like Api or WorkerApi)"
+      }
+    },
+    "environment": {
+      "type": "string",
+      "allowedValues": [ "Dev", "Test", "Acc", "Prod" ],
+      "metadata": {
+        "description": "The environment for this deployment."
+      }
+    },
+    "developerSuffix": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Your name to use in the development deploy instance."
+      }
+    },
+    "serviceName": {
+      "type": "string",
+      "metadata": {
+        "description": "The name of this microservice (ie: Devices, Customers, Partners)."
+      }
+    },
+    "locationCode": {
+      "type": "string",
+      "metadata": {
+        "description": "The short region code to add to the deployed instances, be sure to match with the real location of the deployment."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for all resources."
+      }
+    },
+    "webHookAllowedRate": {
+      "type": "string",
+      "defaultValue": "*",
+      "metadata": {
+        "description": "The number of allowed requests per minute that the sender will be sending"
+      }
+    },
+    "topicName": {
+      "type": "string",
+      "defaultValue": ""
+    },
+    "webHook": {
+      "type": "string"
+    },
+    "eventTypes": {
+      "type": "array"
+    },
+    "advancedFilters": {
+      "type": "array",
+      "defaultValue": []
+    },
+    "hostNameOverride": {
+      "type":"string",
+      "defaultValue":""
+    },
+    "keyVaultPrefix": {
+      "type":"string",
+      "defaultValue":"Comp"
+    },
+    "useDefaultHostname":{
+      "type":"bool",
+      "defaultValue":false
+    }
+  },
+  "variables": {
+    "defaultSubdomain": "[concat('services.', tolower(parameters('locationCode')))]",
+    "subdomain": "[tolower(concat(parameters('serviceType'),'-',parameters('serviceName'),'.',variables('defaultSubdomain')))]",
+    "hostname": "[concat(variables('subdomain'),'.',tolower(variables('rootZone')))]",
+    "developerSuffix": "[if(equals(parameters('developerSuffix'),''),'', concat(toUpper(substring(parameters('developerSuffix'),0,1)),tolower(substring(parameters('developerSuffix'),1,parameters('developerSuffix').length))))]",
+    "microServiceName": "[concat('Comp',parameters('environment'), variables('developerSuffix') ,'-',parameters('locationCode'),'-',parameters('serviceName'))]",
+    "apiServiceName": "[concat(variables('microServiceName'),'-Func-',parameters('serviceType'))]",
+    "hostingPlanName": "[concat('Comp',parameters('environment'), variables('developerSuffix'),'-',parameters('locationCode'),'-', parameters('serviceName'))]",
+    "longStorageAccountName": "[toLower(concat('comp',variables('developerSuffix'),parameters('environment'),parameters('serviceName'),parameters('locationCode')))]",
+    "storageAccountName": "[if(lessOrEquals(length(variables('longStorageAccountName')),24),variables('longStorageAccountName'),tolower(concat('pp',parameters('environment'),substring(parameters('serviceName'),0,2),uniqueString(variables('longStorageAccountName')))))]",
+    "mainResourceGroup": "[concat('CompanyName.',parameters('environment'),'.',parameters('locationCode'))]",
+    "eventDomainName": "[concat('CompanyName-',parameters('environment'),'-',parameters('locationCode'))]",
+    "keyVaultName": "[concat(parameters('keyVaultPrefix'),parameters('environment'),'-Main-',parameters('locationCode'))]",
+    "tags": {
+      "service": "[parameters('serviceName')]",
+      "locationCode": "[parameters('locationCode')]",
+      "environment": "[parameters('environment')]"
+    },
+    "rootZones": {
+      "Dev": "companyname-dev.net",
+      "Test": "companyname-test.net",
+      "Acc": "companyname-staging.net",
+      "Prod": "companyName.com"
+    },
+    "rootZone": "[tolower(concat(if(equals(parameters('developerSuffix'),''),'',concat(parameters('developerSuffix'),'.')),variables('rootZones')[parameters('environment')]))]"
+  },
+  "resources": [
+
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2019-10-01",
+      "name": "[concat('deploySubscriptions-',variables('apiServiceName'))]",
+      "resourceGroup": "[variables('mainResourceGroup')]",
+      "dependsOn": [
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "parameters":{
+          "topic":{
+            "value":"[concat(parameters('topicName'))]"
+          },
+          "scope":{
+            "value":"[concat('Microsoft.EventGrid/domains/',variables('eventDomainName'),'/topics/',parameters('topicName'))]"
+          },
+          "endpointUrl": {
+              "value": "[concat('https://', if(equals(parameters('hostNameOverride'),''), if(equals(parameters('useDefaultHostname'),false()), variables('hostname'), reference(concat('Microsoft.Web/sites/',variables('apiServiceName')), '2018-02-01').defaultHostName), parameters('hostNameOverride')), parameters('webHook'),'?code=')]"
+          },
+          "code":{
+            "value":"[listKeys(resourceId('Microsoft.Web/sites/host', variables('apiServiceName'), 'default'),'2018-11-01').functionKeys.eventgrid]"
+          },
+          "location":{
+            "value":"[parameters('location')]"
+          },
+          "apiServiceName": {
+              "value": "[variables('apiServiceName')]"
+          },
+          "eventDomainName": {
+              "value": "[variables('eventDomainName')]"
+          },
+          "eventTypes": {
+              "value": "[parameters('eventTypes')]"
+          },
+          "advancedFilters": {
+              "value": "[parameters('advancedFilters')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "topic": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            },
+            "endpointUrl":{
+              "type": "string"
+            },
+            "code":{
+              "type": "securestring"
+            },
+            "location": {
+              "type": "string"
+            },
+            "eventDomainName": {
+              "type":"string"
+            },
+            "apiServiceName": {
+              "type": "string"
+            },
+            "eventTypes": {
+              "type":"array"
+            },
+            "advancedFilters": {
+              "type": "array"
+            }
+          },
+          "variables": {},
+          "resources": [
+            {
+              "type": "Microsoft.EventGrid/domains/topics/providers/eventSubscriptions",
+              "apiVersion": "2020-01-01-preview",
+              "location":"[parameters('location')]",
+              "name": "[concat(parameters('eventDomainName'),'/',parameters('topic'),'/Microsoft.EventGrid/', parameters('apiServiceName'))]",
+              "properties": {
+                "destination": {
+                  "endpointType": "WebHook",
+                  "properties": {
+                    "endpointUrl": "[concat(parameters('endpointUrl'), parameters('code'))]",
+                    "maxEventsPerBatch": 1,
+                    "preferredBatchSizeInKilobytes": 64
+                  }
+                },
+                "filter": {
+                  "subjectBeginsWith": "",
+                  "subjectEndsWith": "",
+                  "includedEventTypes": "[parameters('eventTypes')]",
+                  "advancedFilters": "[parameters('advancedFilters')]"
+                },
+                "labels": [],
+                "eventDeliverySchema": "CloudEventSchemaV1_0",
+                "retryPolicy": {
+                  "maxDeliveryAttempts": 30,
+                  "eventTimeToLiveInMinutes": 1440
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "environment": {
+      "type": "string",
+      "value": "[parameters('environment')]"
+    },
+    "microServiceName": {
+      "type": "string",
+      "value": "[variables('microServiceName')]"
+    },
+    "apiName": {
+      "type": "string",
+      "value": "[variables('apiServiceName')]"
+    }
+  }
+}

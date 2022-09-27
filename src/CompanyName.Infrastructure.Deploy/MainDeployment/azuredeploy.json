@@ -1,0 +1,569 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-08-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environment": {
+      "type": "string",
+      "allowedValues": [ "Dev", "Test", "Acc", "Prod" ]
+    },
+    "locations": {
+      "type": "array"
+    },
+    "developerSuffix": {
+      "type": "string",
+      "defaultValue": ""
+    },
+    "resourceGroupPrefix": {
+      "type": "string",
+      "defaultValue": "CompanyName."
+    },
+    "keyVaultName": {
+      "type": "string",
+      "defaultValue": "main"
+    },
+    "sqlAdminUser":{
+      "type":"string"
+    },
+    "sqlAdminPassword":{
+      "type": "securestring"
+    },
+    "keyVaultPrefix":{
+      "type":"string",
+      "defaultValue":"Comp"
+    },
+    "recoverVaults":{
+      "type":"bool",
+      "defaultValue":true
+    },
+    "_artifactsLocation": {
+      "type": "string"
+    },
+    "_sasToken": {
+      "type": "string"
+    }
+  },
+  "variables": {
+    "resourceGroupPrefix": "[concat(parameters('resourceGroupPrefix'),parameters('environment'),parameters('developerSuffix'),'.')]",
+    "mainResourceGroup":"[concat(parameters('resourceGroupPrefix'),parameters('environment'),parameters('developerSuffix'))]",
+    "keyVaultPrefix":"[concat(parameters('keyVaultPrefix'),parameters('environment'),parameters('developerSuffix'))]",
+    "mainKeyVaultPrefix":"[concat(variables('keyVaultPrefix'),'-','main','-')]",
+    "globalKeyVaultName":"[concat(variables('mainKeyVaultPrefix'),'Global')]"
+  },
+  "resources": [
+    {
+      "copy": {
+        "name": "multipleRgSetup",
+        "count": "[length(parameters('locations'))]",
+        "mode": "parallel"
+      },
+      "type": "Microsoft.Resources/resourceGroups",
+      "apiVersion": "2018-05-01",
+      "location": "[parameters('locations')[copyIndex()].location]",
+      "name": "[concat(variables('resourceGroupPrefix'),parameters('locations')[copyIndex()].locationCode)]",
+      "properties": {},
+      "tags": {
+        "locationCode": "[parameters('locations')[copyIndex()].locationCode]",
+        "environment": "[parameters('environment')]"
+      }
+    },
+    {
+      "type": "Microsoft.Resources/resourceGroups",
+      "apiVersion": "2018-05-01",
+      "location": "WestEurope",
+      "name": "[concat(variables('mainResourceGroup'))]",
+      "properties": {},
+      "tags": {
+        "locationCode": "Global",
+        "environment": "[parameters('environment')]"
+      }
+    },
+    {
+      "name": "[concat(deployment().name,'-dnsDeployment')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2019-10-01",
+      "resourceGroup": "[concat(parameters('resourceGroupPrefix'),parameters('environment'),parameters('developerSuffix'))]",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "uri": "[concat(parameters('_artifactsLocation'), '/CompanyName.Infrastructure.Dns/azuredeploy.json', parameters('_sasToken'))]",
+          "contentVersion": "1.0.0.0"
+        },
+        "parameters": {
+          "environment": {
+            "value": "[parameters('environment')]"
+          }
+        }
+      },
+      "tags": {
+        "locationCode": "Global",
+        "environment": "[parameters('environment')]"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Resources/resourceGroups/',parameters('resourceGroupPrefix'),parameters('environment'),parameters('developerSuffix'))]"
+      ]
+    },
+    {
+      "copy": {
+        "name": "multipleEventGridDomainDeploy",
+        "count": "[length(parameters('locations'))]",
+        "mode": "parallel"
+      },
+      "apiVersion": "2020-06-01",
+      "name": "[concat(concat(deployment().name,'-eventGridDeploy',parameters('locations')[copyIndex()].locationCode))]",
+      "type": "Microsoft.Resources/deployments",
+      "resourceGroup": "[concat(variables('resourceGroupPrefix'),parameters('locations')[copyIndex()].locationCode)]",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "uri": "[concat(parameters('_artifactsLocation'),'/CompanyName.Infrastructure.EventGrid/azuredeploy.json',parameters('_sasToken'))]",
+          "contentVersion": "1.0.0.0"
+        },
+        "parameters": {
+          "environment": {
+            "value": "[parameters('environment')]"
+          },
+          "location": {
+            "value": "[parameters('locations')[copyIndex()].location]"
+          },
+          "locationCode": {
+            "value": "[parameters('locations')[copyIndex()].locationCode]"
+          }
+        }
+      },
+      "tags": {
+        "locationCode": "[parameters('locations')[copyIndex()].locationCode]",
+        "environment": "[parameters('environment')]"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Resources/resourceGroups/',concat(variables('resourceGroupPrefix'),parameters('locations')[copyIndex()].locationCode))]"
+      ]
+    },
+    {
+      "copy": {
+        "name": "multipleSqlServerDeploy",
+        "count": "[length(parameters('locations'))]",
+        "mode": "parallel"
+      },
+      "apiVersion": "2020-06-01",
+      "name": "[concat(concat(deployment().name,'-sqlServerDeploy',parameters('locations')[copyIndex()].locationCode))]",
+      "type": "Microsoft.Resources/deployments",
+      "resourceGroup": "[concat(variables('resourceGroupPrefix'),parameters('locations')[copyIndex()].locationCode)]",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "uri": "[concat(parameters('_artifactsLocation'),'/CompanyName.Infrastructure.SqlDatabaseServer/azuredeploy.json',parameters('_sasToken'))]",
+          "contentVersion": "1.0.0.0"
+        },
+        "parameters": {
+          "environment": {
+            "value": "[parameters('environment')]"
+          },
+          "location": {
+            "value": "[parameters('locations')[copyIndex()].location]"
+          },
+          "locationCode": {
+            "value": "[parameters('locations')[copyIndex()].locationCode]"
+          },
+          "administratorLogin": {
+            "value": "[parameters('sqlAdminUser')]"
+          },
+          "administratorLoginPassword": {
+            "value": "[parameters('sqlAdminPassword')]"
+          }
+        }
+      },
+      "tags": {
+        "locationCode": "[parameters('locations')[copyIndex()].locationCode]",
+        "environment": "[parameters('environment')]"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Resources/resourceGroups/',concat(variables('resourceGroupPrefix'),parameters('locations')[copyIndex()].locationCode))]"
+      ]
+    } /*,
+    {
+      "apiVersion": "2020-06-01",
+      "name": "[concat(concat(deployment().name,'-Cosmos'))]",
+      "type": "Microsoft.Resources/deployments",
+      "resourceGroup": "[variables('mainResourceGroup')]",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "uri": "[concat(parameters('_artifactsLocation'),'/CompanyName.Infrastructure.CosmosDB/azuredeploy.json',parameters('_sasToken'))]",
+          "contentVersion": "1.0.0.0"
+        },
+        "parametersLink": {
+          "uri": "[concat(parameters('_artifactsLocation'),'/CompanyName.Infrastructure.CosmosDB/azuredeploy.parameters.',tolower(parameters('environment')),'.json',parameters('_sasToken'))]",
+          "contentVersion": "1.0.0.0"
+        }
+      },
+      "tags": {
+        "locationCode": "Global",
+        "environment": "[parameters('environment')]"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Resources/resourceGroups/',concat(variables('mainResourceGroup')))]"
+      ]
+    },
+    {
+
+      "apiVersion": "2020-06-01",
+      "name": "[concat(concat(deployment().name,'-CosmosLeaseDb'))]",
+      "type": "Microsoft.Resources/deployments",
+      "resourceGroup": "[variables('mainResourceGroup')]",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "uri": "[concat(parameters('_artifactsLocation'),'/CompanyName.Infrastructure.CosmosDB/CollectionsTemplate/azuredeploy.json',parameters('_sasToken'))]",
+          "contentVersion": "1.0.0.0"
+        },
+        "parametersLink": {
+          "uri": "[concat(parameters('_artifactsLocation'),'/CompanyName.Infrastructure.CosmosDB/CollectionsTemplate/azuredeploy.parameters.',tolower(parameters('environment')),'.json',parameters('_sasToken'))]",
+          "contentVersion": "1.0.0.0"
+        }
+      },
+      "tags": {
+        "locationCode": "Global",
+        "environment": "[parameters('environment')]"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Resources/resourceGroups/',concat(variables('mainResourceGroup')))]",
+        "[concat('Microsoft.Resources/deployments/', concat(deployment().name,'-Cosmos'))]"
+      ]
+    }*/,
+    {
+      "dependsOn": [
+        "[concat('Microsoft.Resources/resourceGroups/',concat(parameters('resourceGroupPrefix'),parameters('environment'),parameters('developerSuffix')))]"
+      ],
+      "apiVersion": "2020-06-01",
+      "name": "[concat(deployment().name,'-GlobalKeyVault')]",
+      "type": "Microsoft.Resources/deployments",
+      "resourceGroup": "[concat(parameters('resourceGroupPrefix'),parameters('environment'),parameters('developerSuffix'))]",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "uri": "[concat(parameters('_artifactsLocation'),'/CompanyName.Infrastructure.KeyVault/azuredeploy.json',parameters('_sasToken'))]",
+          "contentVersion": "1.0.0.0"
+        },
+        "parameters": {
+          "environment": {
+            "value": "[parameters('environment')]"
+          },
+          "location": {
+            "value": "WestEurope"
+          },
+          "locationCode": {
+            "value": "Global"
+          },
+          "enabledForTemplateDeployment": {
+            "value": true
+          },
+          "recover": {
+            "value": "[parameters('recoverVaults')]"
+          }
+        }
+      },
+      "tags": {
+        "locationCode": "Global",
+        "environment": "[parameters('environment')]"
+      }
+    },
+    {
+      "dependsOn": [
+        "[concat('Microsoft.Resources/deployments/',concat(deployment().name,'-GlobalKeyVault'))]"
+      ],
+      "apiVersion": "2020-06-01",
+      "name": "[concat(deployment().name,'-Acme-KeyVault')]",
+      "type": "Microsoft.Resources/deployments",
+      "resourceGroup": "[concat(parameters('resourceGroupPrefix'),parameters('environment'),parameters('developerSuffix'),'.Acme.LetsEncrypt')]",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "uri": "[concat(parameters('_artifactsLocation'),'/CompanyName.Infrastructure.AcmeKeyVault/azuredeploy.json',parameters('_sasToken'))]",
+          "contentVersion": "1.0.0.0"
+        },
+        "parameters": {
+          "appName": {
+            "value": "LetsEncrypt"
+          },
+          "acmeEndpoint": {
+            "value": "https://acme-v02.api.letsencrypt.org/"
+          },
+          "environment": {
+            "value": "[parameters('environment')]"
+          },
+          "developerSuffix": {
+            "value": "[parameters('developerSuffix')]"
+          },
+          "location": {
+            "value": "WestEurope"
+          },
+          "mailAddress": {
+            "value": "CompanyName@outlook.com"
+          },
+          "createWithKeyVault": {
+            "value": false
+          },
+          "keyVaultBaseUrl": {
+            "value": "[concat('https://', reference(concat('Microsoft.Resources/deployments/',deployment().name,'-GlobalKeyVault')).outputs.keyVaultUrl.value)]"
+          }
+        }
+      },
+      "tags": {
+        "locationCode": "Global",
+        "environment": "[parameters('environment')]"
+      }
+    },
+    {
+      "dependsOn": [
+        "[concat('Microsoft.Resources/deployments/',deployment().name,'-Acme-KeyVault')]",
+        "[concat('Microsoft.Resources/deployments/',deployment().name,'-GlobalKeyVault')]"
+      ],
+      "apiVersion": "2020-06-01",
+      "name": "[concat(deployment().name,'-cert-rbac')]",
+      "type": "Microsoft.Resources/deployments",
+      "resourceGroup": "[concat(parameters('resourceGroupPrefix'),parameters('environment'),parameters('developerSuffix'))]",
+      "properties": {
+        "mode": "Incremental",
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "parameters": {
+          "globalKeyVaultName": {
+            "value": "[variables('globalKeyVaultName')]"
+          },
+          "certificateFunctionAppName": {
+            "value": "[reference(concat('Microsoft.Resources/deployments/',deployment().name,'-Acme-KeyVault')).outputs.functionAppName.value]"
+          },
+          "certificateFunctionAppPrincipalId": {
+            "value": "[reference(concat('Microsoft.Resources/deployments/',deployment().name,'-Acme-KeyVault')).outputs.identity.value.principalId]" // TODO: Fill in parameter value
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "globalKeyVaultName": {
+              "type": "string",
+              "metadata": {
+                "description": "The keyvault name to give permissions to"
+              }
+            },
+            "certificateFunctionAppName": {
+              "type": "string"
+            },
+            "certificateFunctionAppPrincipalId": {
+              "type": "string"
+            }
+          },
+          "variables": {},
+          "resources": [
+            {
+              "name": "[concat(parameters('globalKeyVaultName'),'/add')]",
+              "type": "Microsoft.KeyVault/vaults/accessPolicies",
+              "dependsOn": [
+              ],
+              "apiVersion": "2019-09-01",
+              "properties": {
+                "accessPolicies": [
+                  {
+                    "tenantId": "[subscription().tenantid]",
+                    "objectId": "[parameters('certificateFunctionAppPrincipalId')]",
+                    "permissions": {
+                      "certificates": [
+                        "get",
+                        "list",
+                        "create",
+                        "update"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "name": "2d1cdb97-4974-4da9-9625-8ffb821f65dc",
+              "apiVersion": "2017-10-01-preview",
+              "location": "[resourceGroup().location]",
+              "properties": {
+                // dns zone contributor : https://github.com/MicrosoftDocs/azure-docs/blob/master/articles/role-based-access-control/built-in-roles.md
+                "roleDefinitionId": "[concat(subscription().Id, '/providers/Microsoft.Authorization/roleDefinitions/befefa01-2a29-4197-83a8-272ff33ce314')]",
+                "principalId": "[parameters('certificateFunctionAppPrincipalId')]",
+                "scope": "[resourceGroup().Id]"
+              }
+            }
+          ]
+        }
+      },
+      "tags": {
+        "locationCode": "Global",
+        "environment": "[parameters('environment')]"
+      }
+    },
+    {
+      "copy": {
+        "name": "multipleKeyVaultsDeploy",
+        "count": "[length(parameters('locations'))]",
+        "mode": "parallel"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Resources/deployments/',concat(deployment().name,'-eventGridDeploy',parameters('locations')[copyIndex()].locationCode))]",
+        "[concat('Microsoft.Resources/resourceGroups/',concat(variables('resourceGroupPrefix'),parameters('locations')[copyIndex()].locationCode))]"
+      ],
+      "apiVersion": "2020-06-01",
+      "name": "[concat(concat(deployment().name,'-keyVaults',parameters('locations')[copyIndex()].locationCode))]",
+      "type": "Microsoft.Resources/deployments",
+      "resourceGroup": "[concat(variables('resourceGroupPrefix'),parameters('locations')[copyIndex()].locationCode)]",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "uri": "[concat(parameters('_artifactsLocation'),'/CompanyName.Infrastructure.KeyVault/azuredeploy.json',parameters('_sasToken'))]",
+          "contentVersion": "1.0.0.0"
+        },
+        "parameters": {
+          "environment": {
+            "value": "[parameters('environment')]"
+          },
+          "developerSuffix": {
+            "value": "[parameters('developerSuffix')]"
+          },
+          "location": {
+            "value": "[parameters('locations')[copyIndex()].location]"
+          },
+          "locationCode": {
+            "value": "[parameters('locations')[copyIndex()].locationCode]"
+          },
+          "enabledForTemplateDeployment": {
+            "value": true
+          },
+          "recover": {
+            "value": "[parameters('recoverVaults')]"
+          }
+        }
+      },
+      "tags": {
+        "locationCode": "[parameters('locations')[copyIndex()].locationCode]",
+        "environment": "[parameters('environment')]"
+      }
+    },
+    {
+      "copy": {
+        "name": "multipleSecretsDeploy",
+        "count": "[length(parameters('locations'))]",
+        "mode": "parallel"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Resources/deployments/',concat(deployment().name,'-keyVaults',parameters('locations')[copyIndex()].locationCode))]",
+        "[concat('Microsoft.Resources/deployments/',concat(deployment().name,'-eventGridDeploy',parameters('locations')[copyIndex()].locationCode))]",
+        "[concat('Microsoft.Resources/deployments/',concat(deployment().name,'-sqlServerDeploy',parameters('locations')[copyIndex()].locationCode))]",
+        "[concat('Microsoft.Resources/resourceGroups/',concat(variables('resourceGroupPrefix'),parameters('locations')[copyIndex()].locationCode))]"
+      ],
+      "apiVersion": "2020-06-01",
+      "name": "[concat(concat(deployment().name,'-deploySecrets-',parameters('locations')[copyIndex()].locationCode))]",
+      "type": "Microsoft.Resources/deployments",
+      "resourceGroup": "[concat(variables('resourceGroupPrefix'),parameters('locations')[copyIndex()].locationCode)]",
+      "tags": {
+        "locationCode": "[parameters('locations')[copyIndex()].locationCode]",
+        "environment": "[parameters('environment')]"
+      },
+      "properties": {
+        "mode": "Incremental",
+        "expressionEvaluationOptions": {
+          "scope": "outer"
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {},
+          "variables": {
+          },
+          "resources": [
+            {
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2019-09-01",
+              "name": "[concat(variables('mainKeyVaultPrefix'),parameters('locations')[copyIndex()].locationCode, '/', 'EventGridDomainEndpoint')]",
+              "location": "[parameters('locations')[copyIndex()].location]",
+              "dependsOn": [
+              ],
+              "properties": {
+                "value": "[reference(concat(deployment().name,'-eventGridDeploy',parameters('locations')[copyIndex()].locationCode)).outputs.eventGridUrl.value]",
+                "contentType": "text/plain"
+              },
+              "tags": {
+                "locationCode": "[parameters('locations')[copyIndex()].locationCode]",
+                "environment": "[parameters('environment')]"
+              }
+            },
+            {
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2019-09-01",
+              "name": "[concat(variables('mainKeyVaultPrefix'),parameters('locations')[copyIndex()].locationCode, '/', 'EventGridDomainKey')]",
+              "location": "[parameters('locations')[copyIndex()].location]",
+              "dependsOn": [
+              ],
+              "properties": {
+                "value": "[reference(concat(deployment().name,'-eventGridDeploy',parameters('locations')[copyIndex()].locationCode)).outputs.eventGridKey.value]",
+                "contentType": "text/plain"
+              },
+              "tags": {
+                "locationCode": "[parameters('locations')[copyIndex()].locationCode]",
+                "environment": "[parameters('environment')]"
+              }
+            },
+            {
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2019-09-01",
+              "name": "[concat(variables('mainKeyVaultPrefix'),parameters('locations')[copyIndex()].locationCode, '/', 'SqlConnectionString')]",
+              "location": "[parameters('locations')[copyIndex()].location]",
+              "dependsOn": [
+              ],
+              "properties": {
+                "value": "[reference(concat(deployment().name,'-sqlServerDeploy',parameters('locations')[copyIndex()].locationCode)).outputs.connectionString.value]",
+                "contentType": "text/plain"
+              },
+              "tags": {
+                "locationCode": "[parameters('locations')[copyIndex()].locationCode]",
+                "environment": "[parameters('environment')]"
+              }
+            },
+            {
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2019-09-01",
+              "name": "[concat(variables('mainKeyVaultPrefix'),parameters('locations')[copyIndex()].locationCode, '/', 'SqlAdminLogin')]",
+              "location": "[parameters('locations')[copyIndex()].location]",
+              "dependsOn": [
+              ],
+              "properties": {
+                "value": "[parameters('sqlAdminUser')]",
+                "contentType": "text/plain"
+              },
+              "tags": {
+                "locationCode": "[parameters('locations')[copyIndex()].locationCode]",
+                "environment": "[parameters('environment')]"
+              }
+            },
+            {
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2019-09-01",
+              "name": "[concat(variables('mainKeyVaultPrefix'),parameters('locations')[copyIndex()].locationCode, '/', 'SqlAdminPassword')]",
+              "location": "[parameters('locations')[copyIndex()].location]",
+              "dependsOn": [
+              ],
+              "properties": {
+                "value": "[parameters('sqlAdminPassword')]",
+                "contentType": "text/plain"
+              },
+              "tags": {
+                "locationCode": "[parameters('locations')[copyIndex()].locationCode]",
+                "environment": "[parameters('environment')]"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "outputs": {
+
+  }
+}

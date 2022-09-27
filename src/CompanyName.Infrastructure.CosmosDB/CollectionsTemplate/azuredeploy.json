@@ -1,0 +1,107 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"environment": {
+			"type": "string",
+			"allowedValues": [ "Dev", "Test", "Acc", "Prod" ]
+		},
+		"developerSuffix": {
+			"type": "string",
+			"defaultValue": ""
+		},
+		"servicePrefix": {
+			"type": "string",
+			"defaultValue": "CompanyName-"
+		},
+		"accountName": {
+			"type": "string",
+			"defaultValue": "",
+			"metadata": {
+				"description": "Cosmos DB account name"
+			}
+		},
+		"location": {
+			"type": "string",
+			"defaultValue": "[resourceGroup().location]",
+			"metadata": {
+				"description": "Location for the Cosmos DB account."
+			}
+		},
+		"api": {
+			"type": "string",
+			"defaultValue": "Sql",
+			"allowedValues": [
+				"Sql",
+				"MongoDB",
+				"Cassandra",
+				"Gremlin",
+				"Table"
+			],
+			"metadata": {
+				"description": "Cosmos DB account type."
+			}
+		},
+		"containers": {
+			"type": "array",
+			"metadata": {
+				"description": "List of containers to create"
+			}
+		}
+	},
+	"variables": {
+		"accountName": "[concat(parameters('servicePrefix'),if(equals(parameters('environment'),'Prod'),'-',concat(parameters('environment'),parameters('developerSuffix'),'-')),parameters('api'),if(equals(length(parameters('accountName')),0),'',concat('-',parameters('accountName'))))]",
+		"accountNameLower": "[tolower(variables('accountName'))]",
+		"defaultCollectionData":{
+          "partitionKeys":["/id"],
+		  "uniqueKeys":[]
+        }
+	},
+	"resources": [
+		
+		{
+			"copy": {
+				"name":"createContainers",
+				"count":"[length(parameters('containers'))]",
+				"mode": "Parallel"
+			},
+            "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+            "apiVersion": "2020-06-01-preview",
+            "name": "[concat(variables('accountNameLower'), '/', parameters('containers')[copyIndex()].database, '/', parameters('containers')[copyIndex()].name)]",
+            "dependsOn": [
+
+            ],
+            "properties": {
+                "resource": {
+                    "id": "[parameters('containers')[copyIndex()].name]",
+                    "indexingPolicy": {
+                        "indexingMode": "consistent",
+                        "automatic": true,
+                        "includedPaths": [
+                            {
+                                "path": "/*"
+                            }
+                        ],
+                        "excludedPaths": [
+                            {
+                                "path": "/\"_etag\"/?"
+                            }
+                        ]
+                    },
+                    "partitionKey": {
+                        "paths": "[union(variables('defaultCollectionData'),parameters('containers')[copyIndex()]).partitionKeys]",
+                        "kind": "Hash"
+                    },
+                    "uniqueKeyPolicy": {
+                        "uniqueKeys": "[union(variables('defaultCollectionData'),parameters('containers')[copyIndex()]).uniqueKeys]"
+                    },
+                    "conflictResolutionPolicy": {
+                        "mode": "LastWriterWins",
+                        "conflictResolutionPath": "/_ts"
+                    }
+                },
+                "options": {}
+            }
+        }
+	]
+}

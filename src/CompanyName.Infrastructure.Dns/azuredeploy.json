@@ -1,0 +1,106 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environment": {
+      "type": "string",
+      "allowedValues": [ "Dev", "Test", "Acc", "Prod" ],
+      "metadata": {
+        "description": "The environment for this deployment."
+      }
+    },
+    "developerSuffix": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Your name to use in the development deploy instance."
+      }
+    }
+  },
+  "variables": {
+    "rootZones": {
+      "Dev": "companyname-dev.net",
+      "Test": "companyname-test.net",
+      "Acc": "companyname-staging.net",
+      "Prod": "companyname.com"
+    },
+    "rootZone": "[concat(if(equals(parameters('developerSuffix'),''),'',concat(parameters('developerSuffix'),'.')),variables('rootZones')[parameters('environment')])]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/dnsZones",
+      "apiVersion": "2018-05-01",
+      "name": "[variables('rootZone')]",
+      "location": "global"
+    },
+    {
+      "type": "Microsoft.Network/dnsZones/A",
+      "apiVersion": "2018-05-01",
+      "name": "[concat(variables('rootZone'), '/', 'api.console')]",
+      "location": "global",
+      "dependsOn": [
+        "[variables('rootZone')]"
+      ],
+      "properties": {
+        "TTL": 3600,
+        "ARecords": [
+          {
+            "ipv4Address": "127.0.0.1"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/dnsZones/A",
+      "apiVersion": "2018-05-01",
+      "name": "[concat(variables('rootZone'), '/', 'localapi.console')]",
+      "location": "global",
+      "dependsOn": [
+        "[variables('rootZone')]"
+      ],
+      "properties": {
+        "TTL": 86400,
+        "ARecords": [
+          {
+            "ipv4Address": "127.0.0.1"
+          }
+        ]
+      }
+    } /*,
+    {
+      "type": "Microsoft.Network/dnsZones/CNAME",
+      "apiVersion": "2018-05-01",
+      "name": "[concat(variables('rootZone'), '/', 'mail')]",
+      "location": "global",
+      "dependsOn": [
+        "[variables('rootZone')]"
+      ],
+      "properties": {
+        "TTL": 86400,
+        "CNAMERecord": {
+          "cname": "mail.companyname.com"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Network/dnsZones/MX",
+      "apiVersion": "2018-05-01",
+      "name": "[concat(variables('rootZone'), '/', '@')]",
+      "location": "global",
+      "dependsOn": [
+        "[variables('rootZone')]"
+      ],
+      "properties": {
+        "TTL": 86400,
+        "MXRecords": [
+          {
+            "exchange":"[concat('mail.',variables('rootZone'))]",
+            "preference":100
+          }
+        ]
+      }
+    }*/
+  ],
+  "outputs": {
+  }
+}

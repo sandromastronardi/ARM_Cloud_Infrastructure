@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "administratorLogin": {
+      "value": "CompDevAdmin"
+    },
+    "administratorLoginPassword": {
+      "value": "putyourpassword"
+    },
+    "environment": {
+      "value": "Dev"
+    },
+    "location":{
+      "value":"WestEurope"
+    },
+    "locationCode": {
+        "value": "WEU"
+    },
+    "regions": {
+      "value": [
+        {
+          "region": "WestEurope",
+          "regionCode": "WEU"
+        },
+        {
+          "region": "NorthEurope",
+          "regionCode":"NEU"
+        }
+      ]
+    }
+  }
+}

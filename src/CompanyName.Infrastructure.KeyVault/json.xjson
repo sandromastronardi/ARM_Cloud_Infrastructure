@@ -1,0 +1,111 @@
+﻿{
+  "x":
+  {
+    "type": "Microsoft.KeyVault/vaults/secrets",
+    "apiVersion": "2019-09-01",
+    "name": "[concat(parameters('keyVaultName'), '/', parameters('secretName'))]",
+    "location": "[parameters('location')]",
+    "dependsOn": [
+      "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+    ],
+    "properties": {
+      "value": "[parameters('secretValue')]"
+    }
+  },
+
+  "accessPolicies": [
+    {
+      "objectId": "[parameters('objectId')]",
+      "tenantId": "[parameters('tenantId')]",
+      "permissions": {
+        "keys": "[parameters('keysPermissions')]",
+        "secrets": "[parameters('secretsPermissions')]"
+      }
+    }
+  ],
+  "y":{
+    "comments": "### RESOURCE - EVENT GRID SUBSCRIPTION ###",
+    "apiVersion": "2018-05-01-preview",
+    "type": "Microsoft.EventGrid/topics/providers/eventSubscriptions",
+    "name": "[concat(variables('eventGridTopic').name, '/Microsoft.EventGrid/', variables('eventGridSubscription').name)]",
+    "location": "[variables('eventGridSubscription').location]",
+    "tags": "[variables('tags')]",
+    "dependsOn": [
+      "[variables('logicApp').name]",
+      "[variables('eventGridTopic').name]"
+    ],
+    "properties": {
+      "eventDeliverySchema": "CloudEventV01Schema",
+      "destination": {
+        "endpointType": "Webhook",
+        "properties": {
+          "endpointUrl": "[listCallbackUrl(variables('logicApp').triggerId, '2017-07-01').value]"
+        }
+      },
+      "filter": {
+        "includedEventTypes": "[variables('eventGridSubscription').filter.includedEventTypes]",
+        "isSubjectCaseSensitive": false
+      }
+    }
+  },
+  "z":{
+    "comments": "### RESOURCE - CUSTOM EVENT GRID TOPIC ###",
+    "apiVersion": "2018-05-01-preview",
+    "type": "Microsoft.EventGrid/topics",
+    "name": "[variables('eventGridTopic').name]",
+    "location": "[variables('eventGridTopic').location]",
+    "tags": "[variables('tags')]",
+    "properties": {
+      "inputSchema": "CloudEventV01Schema"
+    }
+  },
+  "o":{
+    "comments": "### RESOURCE - LOGIC APP - EVENT HANDLER ###",
+    "apiVersion": "2017-07-01",
+    "type": "Microsoft.Logic/workflows",
+    "name": "[variables('logicApp').name]",
+    "location": "[variables('logicApp').location]",
+    "tags": "[variables('tags')]",
+    "properties": {
+      "state": "Enabled",
+      "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "parameters": {},
+        "triggers": {
+          "manual": {
+            "type": "Request",
+            "kind": "Http",
+            "inputs": {
+              "method": "POST",
+              "schema": {}
+            }
+          }
+        },
+        "actions": {},
+        "outputs": {}
+      }
+    }
+  },
+
+  "objectId": {
+    "type": "string",
+    "metadata": {
+      "description": "Specifies the object ID of a user, service principal or security group in the Azure Active Directory tenant for the vault. The object ID must be unique for the list of access policies. Get it by using Get-AzADUser or Get-AzADServicePrincipal cmdlets."
+    }
+  },
+
+
+  "p":{
+    "type": "Microsoft.KeyVault/vaults/secrets",
+    "apiVersion": "2019-09-01",
+    "name": "[concat(variables('serviceNamePrefix'),parameters('regions')[copyIndex()].regionCode,parameters('keyVaultName'), '/', 'EventGridDomainKey')]",
+    "location": "[parameters('regions')[copyIndex()].region]",
+    "dependsOn": [
+      "[resourceId(concat(variables('resourceGroupPrefix'),parameters('regions')[copyIndex()].regionCode),'Microsoft.EventGrid/domains', pp.GetGrid(variables('serviceNamePrefix'),parameters('regions')[copyIndex()]).name)]"
+    ],
+    "properties": {
+      "value": "[listKeys(pp.GetGrid(concat(variables('resourceGroupPrefix'),parameters('regions')[copyIndex()].regionCode),variables('serviceNamePrefix'),parameters('regions')[copyIndex()]).resourceId, '2018-05-01-preview').key1]"
+    }
+  }
+}

@@ -1,0 +1,1213 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "serviceType": {
+      "type": "string",
+      "metadata": {
+        "description": "The type of this microservice function app. (Like Api or WorkerApi)"
+      }
+    },
+    "environment": {
+      "type": "string",
+      "allowedValues": [ "Dev", "Test", "Acc", "Prod" ],
+      "metadata": {
+        "description": "The environment for this deployment."
+      }
+    },
+    "developerSuffix": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Your name to use in the development deploy instance."
+      }
+    },
+    "serviceName": {
+      "type": "string",
+      "metadata": {
+        "description": "The name of this microservice (ie: Devices, Customers, Partners)."
+      }
+    },
+    "locationCode": {
+      "type": "string",
+      "metadata": {
+        "description": "The short region code to add to the deployed instances, be sure to match with the real location of the deployment."
+      }
+    },
+    "insightsSuffix": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "A suffix for your insights, if you don't provide it then all servicetypes will share the same application insights. (preferred within the same microservice)"
+      }
+    },
+    "functionVersion": {
+      "type": "string",
+      "allowedValues": [
+        "~2",
+        "~3"
+      ],
+      "defaultValue": "~3"
+    },
+    "appSettings": {
+      "type": "array",
+      "defaultValue": []
+    },
+    "addAuthorisation": {
+      "type": "bool",
+      "defaultValue": false
+    },
+    "addEventGrid": {
+      "type": "bool",
+      "defaultValue": false
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for all resources."
+      }
+    },
+    "webHookAllowedRate": {
+      "type": "string",
+      "defaultValue": "*",
+      "metadata": {
+        "description": "The number of allowed requests per minute that the sender will be sending"
+      }
+    },
+    "keyVaultPrefix": {
+      "type": "string",
+      "defaultValue": "Comp"
+    },
+    "sqlDatabases": {
+      "type": "array",
+      "defaultValue": []
+    },
+    "keyVaultAppSettings": {
+      "type": "array",
+      "defaultValue": []
+    },
+    "keyVaultGlobalAppSettings": {
+      "type": "array",
+      "defaultValue": [] /*
+            
+            {
+              "name":"CosmosDbEndpoint",
+              "keyName":"CompanyName-Sql-CosmosEndpoint",
+              "type":"Custom"
+            }
+            */
+    },
+    "customCertificate": {
+      "type": "string",
+      "defaultValue": ""
+    } /*,
+    "extraCertificates":{
+      "type": "array",
+      "defaultValue":[""]
+    }*/,
+    "extraDomain": {
+      "type": "string",
+      "defaultValue": ""
+    },
+    "certificateDomain": {
+      "type": "string",
+      "defaultValue": ""
+    },
+    "webSocketsEnabled": {
+      "type": "bool",
+      "defaultValue": false
+    }
+  },
+  "functions": [
+    
+  ],
+  "variables": {
+    "defaultCertificate": "[concat('wildcard-services-',tolower(parameters('locationCode')))]",
+    "defaultSubdomain": "[concat('services.', tolower(parameters('locationCode')))]",
+    "certificate": "[concat(if(equals(parameters('customCertificate'),''),variables('defaultCertificate'),parameters('customCertificate')),'-',replace(if(equals(parameters('certificateDomain'),''), variables('rootZone'),parameters('certificateDomain')),'.','-'))]",
+    "certificateName": "[concat(tolower(variables('globalKeyVaultName')),'-',variables('certificate'))]",
+    "subdomain": "[tolower(concat(parameters('serviceType'),'-',parameters('serviceName'),'.',variables('defaultSubdomain')))]",
+    "hostname": "[concat(variables('subdomain'),'.',tolower(variables('rootZone')))]",
+    "locationHostname": "[concat(tolower(parameters('locationCode')),'.',variables('hostname'))]",
+    "locationSubdomain": "[concat(tolower(parameters('locationCode')),'.',variables('subdomain'))]",
+    "developerSuffix": "[if(equals(parameters('developerSuffix'),''),'', concat(toUpper(substring(parameters('developerSuffix'),0,1)),tolower(substring(parameters('developerSuffix'),1,parameters('developerSuffix').length))))]",
+    "microServiceName": "[concat('Comp',parameters('environment'), variables('developerSuffix') ,'-',parameters('locationCode'),'-',parameters('serviceName'))]",
+    "apiServiceName": "[concat(variables('microServiceName'),'-Func-',parameters('serviceType'))]",
+    "hostingPlanName": "[concat('Comp',parameters('environment'), variables('developerSuffix'),'-',parameters('locationCode'),'-', parameters('serviceName'))]",
+    "longStorageAccountName": "[toLower(concat('comp',variables('developerSuffix'),parameters('environment'),parameters('serviceName'),parameters('locationCode')))]",
+    "storageAccountName": "[if(lessOrEquals(length(variables('longStorageAccountName')),24),variables('longStorageAccountName'),tolower(concat('comp',parameters('environment'),substring(parameters('serviceName'),0,2),uniqueString(variables('longStorageAccountName')))))]",
+    "eventGridDomain": "[concat('CompanyName-',parameters('environment'),parameters('developerSuffix'),'-',parameters('locationCode'))]",
+    "regionRg": "[concat('CompanyName.',parameters('environment'),parameters('developerSuffix'),'.',parameters('locationCode'))]",
+    "globalKeyVaultRg": "[concat('CompanyName.',parameters('environment'),parameters('developerSuffix'))]",
+    "keyVaultName": "[concat(parameters('keyVaultPrefix'),parameters('environment'),parameters('developerSuffix'),'-Main-',parameters('locationCode'))]",
+    "globalKeyVaultName": "[concat(parameters('keyVaultPrefix'),parameters('environment'),parameters('developerSuffix'),'-Main-','Global')]",
+    /*"domains":{
+      "copy":[
+        {
+          "name":"extra",
+          "count":"[length(parameters('extraCertificates'))]",
+          "input":{
+            "name":"[parameters('extraCertificates')[copyIndex('extra')]]",
+            "certificateName":"[replace(concat(parameters('extraCertificates')[copyIndex('extra')],'-',if(equals(parameters('certificateDomain'),''), variables('rootZone'),parameters('certificateDomain'))),'.','-')]",
+            //"hostname":"[concat(parameters('extraCertificates')[copyIndex('extra')],'-',if(equals(parameters('certificateDomain'),''), variables('rootZone'),parameters('certificateDomain')))]",
+            "fqdn":"[concat(parameters('extraCertificates')[copyIndex('extra')],'-',if(equals(parameters('certificateDomain'),''), variables('rootZone'),parameters('certificateDomain')))]"
+            / *https://docs.microsoft.com/en-us/azure/templates/microsoft.web/sites/config-connectionstrings* /
+          }
+        }
+      ]
+    },*/
+    "extraDomain": {
+      "enabled": "[not(equals(parameters('extraDomain'),''))]",
+      "certificateName": "[replace(concat(parameters('extraDomain'),'-',if(equals(parameters('certificateDomain'),''), variables('rootZone'),parameters('certificateDomain'))),'.','-')]",
+      "name": "[concat(parameters('extraDomain'))]",
+      "fqdn": "[concat(parameters('extraDomain'),'.',if(equals(parameters('certificateDomain'),''), variables('rootZone'),parameters('certificateDomain')))]"
+    },
+    "keyVaultSecrets": {
+      "copy": [
+        {
+          "name": "appsettings",
+          "count": "[length(parameters('keyVaultAppSettings'))]",
+          "input": {
+            "name": "[parameters('keyVaultAppSettings')[copyIndex('appsettings')]]",
+            "value": "[concat('@Microsoft.KeyVault(VaultName=', concat('Comp',parameters('environment'),parameters('developerSuffix'),'-','main','-Global'),';SecretName=',concat(parameters('serviceName'),'-',parameters('keyVaultAppSettings')[copyIndex('appsettings')]),';SecretVersion=)')]"
+            /*https://docs.microsoft.com/en-us/azure/templates/microsoft.web/sites/config-connectionstrings*/
+          }
+        }
+      ]
+    },
+    "customGlobalSettings": {
+      "copy": [
+        {
+          "name": "appsettings",
+          "count": "[length(parameters('keyVaultGlobalAppSettings'))]",
+          "input": {
+            "name": "[parameters('keyVaultGlobalAppSettings')[copyIndex('appsettings')].name]",
+            "value": "[concat('@Microsoft.KeyVault(VaultName=', concat('Comp',parameters('environment'),parameters('developerSuffix'),'-',if(empty(parameters('keyVaultGlobalAppSettings')[copyIndex('appsettings')].vaultName),'main',parameters('keyVaultGlobalAppSettings')[copyIndex('appsettings')].vaultName),'-Global'),';SecretName=',concat(parameters('keyVaultGlobalAppSettings')[copyIndex('appsettings')].keyName),';SecretVersion=)')]"
+            /*https://docs.microsoft.com/en-us/azure/templates/microsoft.web/sites/config-connectionstrings*/
+          }
+        },
+        {
+          "name": "vaultsUsed",
+          "count": "[length(parameters('keyVaultGlobalAppSettings'))]",
+          "input": "[concat(parameters('keyVaultGlobalAppSettings')[copyIndex('vaultsUsed')].vaultName,'|', parameters('keyVaultGlobalAppSettings')[copyIndex('vaultsUsed')].resourceGroup)]"
+        }
+      ]
+    },
+    "customGlobalVaultsUsed": "[union(variables('customGlobalSettings').vaultsUsed,json('[]'))]",
+    "sqlDatabases": {
+      "copy": [
+        {
+          "name": "connectionstrings",
+          "count": "[length(parameters('sqlDatabases'))]",
+          "input": {
+            "name": "[concat(if(equals(length(parameters('sqlDatabases')),1),'',concat(parameters('sqlDatabases')[copyIndex('connectionstrings')],'-')),'DBConnectionString')]",
+            "connectionString": "[concat('@Microsoft.KeyVault(VaultName=', variables('keyVaultName'),';SecretName=',concat(parameters('serviceName'),'-',parameters('sqlDatabases')[copyIndex('connectionstrings')],'-ConnectionString'),';SecretVersion=)')]",
+            "type": "SQLAzure" /*https://docs.microsoft.com/en-us/azure/templates/microsoft.web/sites/config-connectionstrings*/
+          }
+        }
+      ]
+    },
+    "readOnlySqlDatabases": {
+      "copy": [
+        {
+          "name": "connectionstrings",
+          "count": "[length(parameters('sqlDatabases'))]",
+          "input": {
+            "name": "[concat(if(equals(length(parameters('sqlDatabases')),1),'',concat(parameters('sqlDatabases')[copyIndex('connectionstrings')],'-')),'RODBConnectionString')]",
+            "connectionString": "[concat('@Microsoft.KeyVault(VaultName=', variables('keyVaultName'),';SecretName=',concat(parameters('serviceName'),'-',parameters('sqlDatabases')[copyIndex('connectionstrings')],'-ROConnectionString'),';SecretVersion=)')]",
+            "type": "SQLAzure"
+          }
+        }
+      ]
+    },
+    "tags": {
+      "service": "[parameters('serviceName')]",
+      "locationCode": "[parameters('locationCode')]",
+      "environment": "[parameters('environment')]"
+    },
+    "rootZones": {
+      "Dev": "companyname-dev.net",
+      "Test": "companyname-test.net",
+      "Acc": "companyname-staging.net",
+      "Prod": "companyname.com"
+    },
+    "rootZone": "[tolower(concat(if(equals(parameters('developerSuffix'),''),'',concat(parameters('developerSuffix'),'.')),variables('rootZones')[parameters('environment')]))]",
+    "auth0Settings": {
+      "Dev": {
+        "audience": "https://api.companyname-dev.net",
+        "domain": "companyname-dev.eu.auth0.com"
+      },
+      "Test": {
+        "audience": "https://api.companyname-test.net",
+        "domain": "companyname-test.eu.auth0.com"
+      },
+      "Acc": {
+        "audience": "https://api.companyname-staging.net",
+        "domain": "companyname-acc.eu.auth0.com"
+      },
+      "Prod": {
+        "audience": "https://api.companyname.com",
+        "domain": "identity.companyname.com"
+      }
+    },
+    "defaultAppSettings": [
+      {
+        "name": "Environment",
+        "value": "[parameters('environment')]"
+      },
+      {
+        "name": "CompanyNameEnvironment",
+        "value": "[parameters('environment')]"
+      },
+      {
+        "name": "DnsRoot",
+        "value": "[variables('rootZone')]"
+      },
+      {
+        "name": "FUNCTIONS_WORKER_RUNTIME",
+        "value": "dotnet"
+      },
+      {
+        "name": "ApplicationInsightsAgent_EXTENSION_VERSION",
+        "value": "~2"
+      }
+    ],
+    "primarySlotAppSettings": [
+      {
+        "name": "IsDeploySlot",
+        "value": false
+      },
+      {
+        "name": "HandlersDisabled",
+        "value": "0"
+      },
+      {
+        "name": "FUNCTIONS_EXTENSION_VERSION",
+        "value": "[parameters('functionVersion')]"
+      },
+      {
+        "name": "LocationCode",
+        "value": "[parameters('locationCode')]"
+      }
+    ],
+    "deploySlotAppsettings": [
+      {
+        "name": "IsDeploySlot",
+        "value": true
+      },
+      {
+        "name": "HandlersDisabled",
+        "value": "1"
+      },
+      {
+        "name": "FUNCTIONS_EXTENSION_VERSION",
+        "value": "[parameters('functionVersion')]"
+      },
+      {
+        "name": "LocationCode",
+        "value": "[parameters('locationCode')]"
+      }
+    ],
+    "authAppSettings": [
+      {
+        "name": "AUTH0_AUDIENCE",
+        "value": "[variables('auth0Settings')[parameters('environment')].audience]"
+      },
+      {
+        "name": "AUTH0_DOMAIN",
+        "value": "[variables('auth0Settings')[parameters('environment')].domain]"
+      },
+      {
+        "name": "AUTH0_LocalConnection",
+        "value": "Username-Password-Authentication"
+      }
+    ],
+    "emptyArray": [],
+    "emptyStringArray": [ "" ]
+  },
+  "resources": [
+    {
+      "name": "[concat('deployDependencies',parameters('locationCode'),parameters('environment'))]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2020-06-01",
+      "properties": {
+        "mode": "Incremental",
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "insightsName": {
+            "value": "[concat(variables('microServiceName'),parameters('insightsSuffix'))]"
+          },
+          "storageAccountName": {
+            "value": "[variables('storageAccountName')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          },
+          "eventGridEndpoint": {
+            "reference": {
+              "keyVault": {
+                "id": "[resourceId(variables('regionRg'), 'Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+              },
+              "secretName": "EventGridDomainEndpoint"
+            }
+          },
+          "regionRg": {
+            "value": "[variables('regionRg')]"
+          },
+          "keyVaultName": {
+            "value": "[variables('keyVaultName')]"
+          },
+          "webHookAllowedRate": {
+            "value": "[parameters('webHookAllowedRate')]"
+          },
+          "eventGridTopic":{
+            "value": "[parameters('serviceName')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "insightsName": {
+              "type": "string"
+            },
+            "storageAccountName": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "object"
+            },
+            "eventGridEndpoint": {
+              "type": "securestring"
+            },
+            "eventGridTopic": {
+              "type": "string"
+            },
+            "regionRg": {
+              "type": "string"
+            },
+            "keyVaultName": {
+              "type": "string"
+            },
+            "webHookAllowedRate": {
+              "type": "string",
+              "defaultValue": "*"
+            }
+          },
+          "variables": {
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Insights/components",
+              "apiVersion": "2015-05-01",
+              "name": "[parameters('insightsName')]",
+              "location": "[parameters('location')]",
+              "kind": "web",
+              "properties": {
+                "Application_Type": "web",
+                "Request_Source": "rest"
+              },
+              "tags": "[parameters('tags')]"
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts",
+              "name": "[parameters('storageAccountName')]",
+              "apiVersion": "2019-06-01",
+              "location": "[parameters('location')]",
+              "kind": "StorageV2",
+              "sku": {
+                "name": "Standard_LRS"
+              },
+              "tags": "[parameters('tags')]"
+            }
+          ],
+          "outputs": {
+            "storageAccountResourceId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+            },
+            "primarySlotDependencyAppSettings": {
+              "type": "array",
+              "value": [
+                {
+                  "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+                  "value": "[reference(resourceId('Microsoft.Insights/components', parameters('insightsName')), '2015-05-01').InstrumentationKey]"
+                },
+                {
+                  "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                  "value": "[reference(resourceId('Microsoft.Insights/components', parameters('insightsName')), '2015-05-01').ConnectionString]"
+                },
+                {
+                  "name": "AzureWebJobsStorage",
+                  "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', parameters('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')),'2019-06-01').keys[0].value,';EndpointSuffix=core.windows.net')]"
+                },
+                {
+                  "name": "AzureWebJobsDashboard",
+                  "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', parameters('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')),'2019-06-01').keys[0].value,';EndpointSuffix=core.windows.net')]"
+                },
+                {
+                  "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+                  "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', parameters('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')),'2019-06-01').keys[0].value,';EndpointSuffix=core.windows.net')]"
+                },
+                {
+                  "name":"netFrameworkVersion",
+                  "value":"v4.0"
+                },
+                {
+                  "name":"AzureWebJobsDisableHomepage",
+                  "value":true
+                }
+              ]
+            },
+            "deploySlotDependencyAppSettings": {
+              "type": "array",
+              "value": [
+                {
+                  "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+                  "value": "[reference(resourceId('Microsoft.Insights/components', parameters('insightsName')), '2015-05-01').InstrumentationKey]"
+                },
+                {
+                  "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                  "value": "[reference(resourceId('Microsoft.Insights/components', parameters('insightsName')), '2015-05-01').ConnectionString]"
+                },
+                {
+                  "name":"AzureWebJobsDisableHomepage",
+                  "value":true
+                }
+              ]
+            },
+            "eventGridSettings": {
+              "type": "array",
+              "value": [
+                {
+                  "name": "EventGridSettings__Endpoint",
+                  "value": "[parameters('eventGridEndpoint')]"
+                },
+                {
+                  "name": "EventGridSettings__DefaultTopic",
+                  "value": "[tolower(parameters('eventGridTopic'))]"
+                },
+                {
+                  "name": "EventGridSettings__Key",
+                  "value": "[concat('@Microsoft.KeyVault(VaultName=', parameters('keyVaultName'),';SecretName=','EventGridDomainKey',';SecretVersion=)')]"
+                },
+                {
+                  "name": "EventGridSettings__WebHookAllowedOrigin",
+                  "value": "eventgrid.azure.net"
+                },
+                {
+                  "name": "EventGridSettings__WebHookAllowedRate",
+                  "value": "[parameters('webHookAllowedRate')]"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2019-08-01",
+      "name": "[variables('apiServiceName')]",
+      "kind": "functionapp",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[concat('Microsoft.Resources/deployments/',concat('deployDependencies',parameters('locationCode'),parameters('environment')))]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]"
+      ],
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "name": "[variables('apiServiceName')]",
+        "siteConfig": {
+          "appSettings": "[union(reference(concat('deployDependencies',parameters('locationCode'),parameters('environment'))).outputs.primarySlotDependencyAppSettings.value,variables('defaultAppSettings'),variables('primarySlotAppSettings'),parameters('appSettings'),if(parameters('addAuthorisation'),variables('authAppSettings'),variables('emptyArray')),if(parameters('addEventGrid'),reference(concat('deployDependencies',parameters('locationCode'),parameters('environment'))).outputs.eventGridSettings.value,variables('emptyArray')),variables('keyVaultSecrets').appsettings,variables('customGlobalSettings').appsettings)]",
+          "connectionStrings": "[union(variables('sqlDatabases').connectionstrings,variables('readOnlySqlDatabases').connectionstrings)]",
+          "minTlsVersion": "1.2"
+        },
+        "httpsOnly": true,
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]",
+        "clientAffinityEnabled": false
+      },
+      "resources": [
+        {
+          "apiVersion": "2015-08-01",
+          "name": "slotconfignames",
+          "type": "config",
+          "location": "[parameters('location')]",
+          "dependsOn": [
+            "[resourceId('Microsoft.Web/Sites', variables('apiServiceName'))]"
+          ],
+          "properties": {
+            "appSettingNames": [ "IsDeploySlot", "HandlersDisabled" ]
+          }
+        },
+        {
+          "apiVersion": "2015-08-01",
+          "name": "web",
+          "type": "config",
+          "dependsOn": [
+            "[resourceId('Microsoft.Web/Sites', variables('apiServiceName'))]"
+          ],
+          "properties": {
+            "http20Enabled": true,
+            "webSocketsEnabled": "[parameters('webSocketsEnabled')]",
+            "remoteDebuggingEnabled": "[equals(parameters('environment'),'Dev')]",
+            "remoteDebuggingVersion": "VS2019"
+          }
+        }
+      ],
+      "tags": "[variables('tags')]"
+    },
+    {
+        "type": "Microsoft.Web/sites/host/functionKeys",
+        "dependsOn":[
+          "[resourceId('Microsoft.Web/sites', variables('apiServiceName'))]"
+        ],
+        "apiVersion": "2018-11-01",
+        "name": "[concat(variables('apiServiceName'), '/default/eventgrid')]",
+        "properties": {
+            "name": "event-grid"
+        }
+    },
+    {
+      "type": "Microsoft.Web/sites/slots",
+      "apiVersion": "2018-11-01",
+      "name": "[concat(variables('apiServiceName'), '/deploy')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('apiServiceName'))]"
+      ],
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "kind": "functionapp",
+      "properties": {
+        "enabled": true,
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]",
+        "siteConfig": {
+          "appSettings": "[union(reference(concat('deployDependencies',parameters('locationCode'),parameters('environment'))).outputs.primarySlotDependencyAppSettings.value,variables('defaultAppSettings'),variables('deploySlotAppsettings'),parameters('appSettings'),if(parameters('addAuthorisation'),variables('authAppSettings'),variables('emptyArray')),if(parameters('addEventGrid'),reference(concat('deployDependencies',parameters('locationCode'),parameters('environment'))).outputs.eventGridSettings.value,variables('emptyArray')),variables('keyVaultSecrets').appsettings,variables('customGlobalSettings').appsettings)]",
+          "connectionStrings": "[union(variables('sqlDatabases').connectionstrings,variables('readOnlySqlDatabases').connectionstrings)]",
+          "minTlsVersion":"1.2"
+        },
+        "clientAffinityEnabled": false,
+        "httpsOnly": true,
+        "redundancyMode": "None"
+      },
+      "resources": [
+        {
+          "apiVersion": "2015-08-01",
+          "name": "web",
+          "type": "config",
+          "dependsOn": [
+            "[resourceId('Microsoft.Web/sites/slots', variables('apiServiceName'), 'deploy')]"
+          ],
+          "properties": {
+            "http20Enabled": true,
+            "webSocketsEnabled": "[parameters('webSocketsEnabled')]",
+            "remoteDebuggingEnabled": "[equals(parameters('environment'),'Dev')]",
+            "remoteDebuggingVersion": "VS2019"
+          }
+        }
+      ],
+      "tags": "[variables('tags')]"
+    },
+    {
+      "type": "Microsoft.Web/sites/slots/host/functionKeys",
+      "dependsOn":[
+        "[resourceId('Microsoft.Web/sites/slots', variables('apiServiceName'),'deploy')]"
+      ],
+      "apiVersion": "2020-06-01",
+      "name": "[concat(variables('apiServiceName'),'/deploy/default/eventgrid')]",
+      "properties": {
+          "name": "eventgrid"
+      }
+    },
+    {
+      "condition":"[not(empty(variables('customGlobalVaultsUsed')))]",
+      "name": "[concat(deployment().name,'-', if(empty(variables('customGlobalVaultsUsed')),'',split(variables('customGlobalVaultsUsed')[copyIndex()],'|')[0]))]",
+      "type": "Microsoft.Resources/deployments",
+      "dependsOn":[
+        "[resourceId('Microsoft.Web/Sites', variables('apiServiceName'))]",
+        "[resourceId('Microsoft.Web/sites/slots', variables('apiServiceName'), 'deploy')]"
+      ],
+      "copy": {
+        "name":"otherVaultPermissions",
+        "count":"[length(variables('customGlobalVaultsUsed'))]",
+        "mode": "Parallel"
+      },
+      "resourceGroup":"[if(equals(indexOf(variables('customGlobalVaultsUsed')[copyIndex()],'|'),-1),variables('globalKeyVaultRg'),split(variables('customGlobalVaultsUsed')[copyIndex()],'|')[1])]",
+      "apiVersion": "2021-04-01",
+      "properties": {
+        "mode": "Incremental",
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "variables": {},
+          "resources": [
+            {
+              "name": "[concat(replace(variables('globalKeyVaultName'),'-Main-',concat('-',split(variables('customGlobalVaultsUsed')[copyIndex('otherVaultPermissions')],'|')[0],'-')),'/add')]",
+              "type": "Microsoft.KeyVault/vaults/accessPolicies",
+              "apiVersion": "2019-09-01",
+              "properties": {
+                "accessPolicies": [
+                  {
+                    "tenantId": "[subscription().tenantid]",
+                    "objectId": "[reference(resourceId('Microsoft.Web/sites', variables('apiServiceName')), '2016-08-01', 'Full').identity.principalId]",
+                    "permissions": {
+                      "keys": [
+                      ],
+                      "secrets": [
+                        "get"
+                      ],
+                      "certificates": [
+                      ],
+                      "storage": [
+                      ]
+                    }
+                  },
+                  {
+                    "tenantId": "[subscription().tenantid]",
+                    "objectId": "[reference(resourceId('Microsoft.Web/sites/slots', variables('apiServiceName'),'deploy'), '2016-08-01', 'Full').identity.principalId]",
+                    "permissions": {
+                      "keys": [
+                      ],
+                      "secrets": [
+                        "get"
+                      ],
+                      "certificates": [
+                      ],
+                      "storage": [
+                      ]
+                    }
+                  },
+                  {
+                    // https://social.msdn.microsoft.com/Forums/en-US/7e76ae16-ee4e-4bab-a121-5111c9a82fa9/arm-template-deployment-for-ssl-bindings-from-certificate-in-an-keyvault?forum=windowsazurewebsitespreview
+                    // Access to Web App RP
+                    "tenantId": "[subscription().tenantid]",
+                    "objectId": "abfa0a7c-a6b6-4736-8310-5855508787cd",
+                    "permissions": {
+                      "keys": [
+                      ],
+                      "secrets": [
+                        "get"
+                      ],
+                      "certificates": [
+                        "get"
+                      ],
+                      "storage": [
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "outputs": {}
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2019-10-01",
+      "name": "[concat(deployment().name,'-GlobalResources')]",
+      "resourceGroup": "[variables('globalKeyVaultRg')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('apiServiceName'))]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+
+          },
+          "variables": {},
+          "resources": [
+            {
+              "name": "[concat(variables('globalKeyVaultName'),'/add')]",
+              "type": "Microsoft.KeyVault/vaults/accessPolicies",
+              "apiVersion": "2019-09-01",
+              "properties": {
+                "accessPolicies": [
+                  {
+                    "tenantId": "[subscription().tenantid]",
+                    "objectId": "[reference(resourceId('Microsoft.Web/sites', variables('apiServiceName')), '2016-08-01', 'Full').identity.principalId]",
+                    "permissions": {
+                      "keys": [
+                      ],
+                      "secrets": [
+                        "get"
+                      ],
+                      "certificates": [
+                      ],
+                      "storage": [
+                      ]
+                    }
+                  },
+                  {
+                    "tenantId": "[subscription().tenantid]",
+                    "objectId": "[reference(resourceId('Microsoft.Web/sites/slots', variables('apiServiceName'),'deploy'), '2016-08-01', 'Full').identity.principalId]",
+                    "permissions": {
+                      "keys": [
+                      ],
+                      "secrets": [
+                        "get"
+                      ],
+                      "certificates": [
+                      ],
+                      "storage": [
+                      ]
+                    }
+                  },
+                  {
+                    // https://social.msdn.microsoft.com/Forums/en-US/7e76ae16-ee4e-4bab-a121-5111c9a82fa9/arm-template-deployment-for-ssl-bindings-from-certificate-in-an-keyvault?forum=windowsazurewebsitespreview
+                    // Access to Web App RP
+                    "tenantId": "[subscription().tenantid]",
+                    "objectId": "abfa0a7c-a6b6-4736-8310-5855508787cd",
+                    "permissions": {
+                      "keys": [
+                      ],
+                      "secrets": [
+                        "get"
+                      ],
+                      "certificates": [
+                        "get"
+                      ],
+                      "storage": [
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/dnsZones/TXT",
+              "apiVersion": "2018-05-01",
+              "name": "[concat(variables('rootZone'), '/', concat('asuid.',variables('subdomain')))]",
+              "location": "global",
+              "dependsOn": [
+                //"[variables('rootZone')]"
+              ],
+              "properties": {
+                "TTL": 60,
+                "TXTRecords": [
+                  {
+                    "value": [
+                      "[reference(resourceId('Microsoft.Web/sites',variables('apiServiceName')), '2020-09-01', 'Full').properties.customDomainVerificationId]"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/dnsZones/TXT",
+              "condition":"[not(equals(parameters('extraDomain'),''))]",
+              "apiVersion": "2018-05-01",
+              "name": "[concat(variables('rootZone'), '/', concat('asuid.',if(equals('',variables('extraDomain').name),'empty',variables('extraDomain').name)))]", // empty for template validation to pass
+              "location": "global",
+              "dependsOn": [
+                //"[variables('rootZone')]"
+              ],
+              "properties": {
+                "TTL": 60,
+                "TXTRecords": [
+                  {
+                    "value": [
+                      "[reference(resourceId('Microsoft.Web/sites',variables('apiServiceName')), '2020-09-01', 'Full').properties.customDomainVerificationId]"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/dnsZones/CNAME",
+              "apiVersion": "2018-05-01",
+              "name": "[concat(variables('rootZone'), '/', concat(variables('subdomain')))]",
+              "location": "global",
+              "dependsOn": [
+                //"[variables('rootZone')]"
+              ],
+              "properties": {
+                "TTL": 60,
+                "CNAMERecord": {
+                    "cname":"[reference(resourceId('Microsoft.Web/sites',variables('apiServiceName')), '2020-09-01', 'Full').properties.defaultHostName]"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2019-10-01",
+      "name": "[concat(deployment().name,'-RegionalResources')]",
+      "resourceGroup": "[variables('regionRg')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('apiServiceName'))]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+
+          },
+          "variables": {},
+          "resources": [
+            {
+              "name": "[concat(variables('keyVaultName'),'/add')]",
+              "type": "Microsoft.KeyVault/vaults/accessPolicies",
+              "apiVersion": "2019-09-01",
+              "properties": {
+                "accessPolicies": [
+                  {
+                    "tenantId": "[subscription().tenantid]",
+                    "objectId": "[reference(resourceId('Microsoft.Web/sites', variables('apiServiceName')), '2016-08-01', 'Full').identity.principalId]",
+                    "permissions": {
+                      "keys": [
+                      ],
+                      "secrets": [
+                        "get"
+                      ],
+                      "certificates": [
+                      ],
+                      "storage": [
+                      ]
+                    }
+                  },
+                  {
+                    "tenantId": "[subscription().tenantid]",
+                    "objectId": "[reference(resourceId('Microsoft.Web/sites/slots', variables('apiServiceName'),'deploy'), '2016-08-01', 'Full').identity.principalId]",
+                    "permissions": {
+                      "keys": [
+                      ],
+                      "secrets": [
+                        "get"
+                      ],
+                      "certificates": [
+                      ],
+                      "storage": [
+                      ]
+                    }
+                  },
+                  {
+                    // https://social.msdn.microsoft.com/Forums/en-US/7e76ae16-ee4e-4bab-a121-5111c9a82fa9/arm-template-deployment-for-ssl-bindings-from-certificate-in-an-keyvault?forum=windowsazurewebsitespreview
+                    // Access to Web App RP
+                    "tenantId": "[subscription().tenantid]",
+                    "objectId": "abfa0a7c-a6b6-4736-8310-5855508787cd",
+                    "permissions": {
+                      "keys": [
+                      ],
+                      "secrets": [
+                        "get"
+                      ],
+                      "certificates": [
+                        "get"
+                      ],
+                      "storage": [
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "[concat(variables('eventGridDomain'),'/',tolower(parameters('serviceName')))]",
+              "type": "Microsoft.EventGrid/domains/topics",
+              "apiVersion": "2020-06-01"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2019-10-01",
+      "name": "[concat(deployment().name,'-SSL')]",
+      "resourceGroup": "[resourceGroup().name]",
+      "dependsOn": [
+        "[concat('Microsoft.Resources/deployments/', concat(deployment().name,'-GlobalResources'))]",
+        "[concat('Microsoft.Resources/deployments/', concat(deployment().name,'-RegionalResources'))]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "parameters": {
+          "location":{
+            "value":"[parameters('location')]"
+          },
+          "globalKeyVaultName": {
+              "value": "[variables('globalKeyVaultName')]"
+          },
+          "globalKeyVaultRg": {
+              "value": "[variables('globalKeyVaultRg')]"
+          },
+          "hostingPlanName": {
+              "value": "[variables('hostingPlanName')]"
+          },
+          "certificate": {
+              "value": "[variables('certificate')]"
+          },
+          "certificateName":{
+            "value":"[variables('certificateName')]"
+          },
+          "extraDomain": {
+              "value": "[variables('extraDomain')]"
+          },
+          "tags": {
+              "value": "[variables('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+              "location":{
+                "type":"string"
+              },
+              "globalKeyVaultRg": {
+                "type":"string"
+              },
+              "globalKeyVaultName":{
+                "type":"string"
+              },
+              "hostingPlanName":{
+                "type":"string"
+              },
+              "certificate": {
+                "type":"string"
+              },
+              "certificateName":{
+                "type":"string"
+              },
+              "extraDomain":{
+                "type":"object"
+              },
+              "tags":{
+                "type": "object"
+              }
+          },
+          "variables": {},
+          "resources": [
+            {
+              "type": "Microsoft.Web/certificates",
+              "name": "[concat(parameters('certificateName'),'-',parameters('hostingPlanName'))]",
+              "apiVersion": "2021-03-01",
+              "location": "[parameters('location')]",
+              "dependsOn": [
+                //"[resourceId('Microsoft.Network/dnsZones/TXT',concat('asiud.',variables('subdomain')))]"
+                //"[resourceId('Microsoft.CertificateRegistration/certificateOrders/certificates', parameters('certificate'), parameters('certificate'))]"
+              ],
+              "properties": {
+                "keyVaultId": "[resourceId(parameters('globalKeyVaultRg'),'Microsoft.KeyVault/vaults', parameters('globalKeyVaultName'))]",
+                "keyVaultSecretName": "[parameters('certificate')]",
+                "serverFarmId":"[resourceId('Microsoft.Web/serverfarms',parameters('hostingPlanName'))]"//,
+                /*"canonicalName": "[variables('uiHostname')]",
+                "hostNames": [
+                  "[variables('uiHostname')]"
+                ],*/
+              },
+              "tags": "[parameters('tags')]"
+            },
+            {
+              "condition":"[parameters('extraDomain').enabled]",
+              "type": "Microsoft.Web/certificates",
+              "name": "[concat(parameters('extraDomain').certificateName,'-',parameters('hostingPlanName'))]",
+              "apiVersion": "2021-03-01",
+              "location": "[parameters('location')]",
+              "dependsOn": [
+                //"[resourceId('Microsoft.Network/dnsZones/TXT',concat('asiud.',variables('subdomain')))]"
+                //"[resourceId('Microsoft.CertificateRegistration/certificateOrders/certificates', parameters('certificate'), parameters('certificate'))]"
+              ],
+              "properties": {
+                "keyVaultId": "[resourceId(parameters('globalKeyVaultRg'),'Microsoft.KeyVault/vaults', parameters('globalKeyVaultName'))]",
+                "keyVaultSecretName": "[parameters('extraDomain').certificateName]",
+                "serverFarmId":"[resourceId('Microsoft.Web/serverfarms',parameters('hostingPlanName'))]"//,
+                /*"canonicalName": "[variables('uiHostname')]",
+                "hostNames": [
+                  "[variables('uiHostname')]"
+                ],*/
+              },
+              "tags": "[parameters('tags')]"
+            }/*,
+            {
+              "type": "Microsoft.Resources/deploymentScripts",
+              "apiVersion": "2020-10-01",
+              "kind": "AzurePowerShell",
+              "name": "WaitSection",
+              "location": "[parameters('location')]",
+              "dependsOn": [
+                  "[resourceId('Microsoft.Web/certificates', concat(parameters('certificateName'),'-',parameters('hostingPlanName')))]",
+                  "[resourceId('Microsoft.Web/certificates', concat(parameters('extraDomain').certificateName,'-',parameters('hostingPlanName')))]"
+              ],
+              "properties": {
+                "azPowerShellVersion": "3.0",
+                "scriptContent": "start-sleep -Seconds 1",
+                "cleanupPreference": "Always",
+                "retentionInterval": "PT1H"
+              }
+            }*/
+
+            //[parameters('extraCertificates')[copyIndex('extra')]]
+            /*,
+            {
+              "apiVersion":"2018-11-01",
+              "type": "Microsoft.Web/sites/hostNameBindings",
+              "name": "[concat(variables('apiServiceName'),'/',variables('locationHostname'))]",
+              "dependsOn": [
+                //"[resourceId('Microsoft.Web/sites',variables('apiServiceName'))]"
+              ],
+              "properties":{
+                "siteName":"[variables('apiServiceName')]"
+              }
+            },
+            {
+              "type": "Microsoft.Web/sites",
+              "name": "[variables('apiServiceName')]",
+              "apiVersion": "2015-08-01",
+              "location": "[parameters('location')]",
+              "dependsOn": [
+                //"[resourceId('Microsoft.Web/certificates', tolower(concat(variables('apiServiceName'),'-',variables('certificate'))))]"
+              ],
+              "properties": {
+                "name": "[variables('apiServiceName')]",
+                "hostNameSslStates": [
+                  {
+                    "name": "[variables('hostname')]",
+                    "sslState": 1,
+                    "thumbprint": "[reference(resourceId('Microsoft.Web/certificates', tolower(concat(variables('apiServiceName'),'-',variables('certificate')))), '2016-08-01', 'Full').thumbprint]",
+                    "toUpdate": true
+                  },
+                  {
+                    "name": "[variables('locationHostname')]",
+                    "sslState": 1,
+                    "thumbprint": "[reference(resourceId('Microsoft.Web/certificates', tolower(concat(variables('apiServiceName'),'-',variables('certificate')))), '2016-08-01', 'Full').thumbprint]",
+                    "toUpdate": true
+                  }
+                ]
+              },
+              "resources":[
+                
+              ]
+            }*/
+          ],
+          "outputs": {
+            "thumbprintMainDomain": {
+              "type": "string",
+              //"value":"[reference(resourceId('Microsoft.Web/certificates','compdev-main-global-wildcard-services-weu-companyname-dev-net-CompDev-WEU-Devices'), '2020-06-01','Full').properties.thumbprint]"
+              "value":"[reference(resourceId('Microsoft.Web/certificates', concat(parameters('certificateName'),'-',parameters('hostingPlanName'))), '2020-06-01', 'Full').properties.thumbprint]"
+            },
+            "thumbprintExtraDomain": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Web/certificates', concat(if(not(parameters('extraDomain').enabled),parameters('certificateName'), parameters('extraDomain').certificateName),'-',parameters('hostingPlanName'))), '2020-06-01', 'Full').properties.thumbprint]"
+              //"value":"[reference(resourceId('Microsoft.Web/certificates','compdev-main-global-wildcard-services-weu-companyname-dev-net-CompDev-WEU-Devices'), '2020-06-01','Full').properties.thumbprint]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2019-08-01",
+      "name": "[variables('hostingPlanName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[concat('Microsoft.Resources/deployments/',concat('deployDependencies',parameters('locationCode'),parameters('environment')))]"
+      ],
+      "kind": "",
+      "properties": {
+        "reserved": false
+      },
+      "sku": {
+        "Tier": "Dynamic",
+        "Name": "Y1"
+      },
+      "tags": "[variables('tags')]"
+    },
+    /* hostname bindings must happen here because dns must be changed first...*/
+    {
+      "apiVersion":"2021-03-01",
+      "location":"[parameters('location')]",
+      "type": "Microsoft.Web/sites/hostNameBindings",
+      "name": "[concat(variables('apiServiceName'),'/',variables('hostname'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites',variables('apiServiceName'))]",
+        "[resourceId('Microsoft.Resources/deployments',concat(deployment().name,'-SSL'))]"
+      ],
+      "properties":{
+        "siteName":"[variables('apiServiceName')]",
+        "sslState":"SniEnabled",
+        //"thumbprint":"[reference(resourceId('Microsoft.Web/certificates', concat(variables('certificateName'),'-',variables('hostingPlanName'))), '2020-06-01', 'Full').properties.thumbprint]"
+        "thumbprint":"[reference(resourceId('Microsoft.Resources/deployments',concat(deployment().name,'-SSL'))).outputs.thumbprintMainDomain.value]"
+      }
+    },
+    {
+      "apiVersion":"2021-03-01",
+      "location":"[parameters('location')]",
+      "condition":"[variables('extraDomain').enabled]", // when default value is empty, don't add hostnames
+      "type": "Microsoft.Web/sites/hostNameBindings",
+      "name": "[concat(variables('apiServiceName'),'/',variables('extraDomain').fqdn)]",
+      "dependsOn": [
+        //"[resourceId('Microsoft.Web/sites',variables('apiServiceName'))]"
+        "[resourceId('Microsoft.Resources/deployments',concat(deployment().name,'-SSL'))]",
+        "[resourceId('Microsoft.Web/sites/hostNameBindings',variables('apiServiceName'),variables('hostname'))]"
+      ],
+      "properties":{
+        "siteName":"[variables('apiServiceName')]",
+        "sslState":"SniEnabled",
+        //"thumbprint":"[reference(resourceId('Microsoft.Web/certificates', concat(if(equals(parameters('extraDomain'),''),variables('certificateName'), variables('extraDomain').certificateName),'-',variables('hostingPlanName'))), '2020-06-01', 'Full').properties.thumbprint]"
+        "thumbprint":"[reference(resourceId('Microsoft.Resources/deployments',concat(deployment().name,'-SSL'))).outputs.thumbprintExtraDomain.value]"
+      }
+    }
+  ],
+  "outputs": {
+    "environment": {
+      "type": "string",
+      "value": "[parameters('environment')]"
+    },
+    "microServiceName": {
+      "type": "string",
+      "value": "[variables('microServiceName')]"
+    },
+    "appInsightsResourceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Insights/components',concat(variables('microServiceName'),parameters('insightsSuffix')))]"
+    },
+    "apiName": {
+      "type": "string",
+      "value": "[variables('apiServiceName')]"
+    },
+    "apiResourceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Web/sites',variables('apiServiceName'))]"
+    },
+    "apiCustomEndpoint":{
+      "type":"string",
+      "value":"[variables('hostname')]"
+    },
+    "apiEndpoint": {
+      "type": "string",
+      "value": "[reference(concat('Microsoft.Web/sites/',variables('apiServiceName')), '2018-02-01').defaultHostName]"
+    },
+    "apiDeployEndpoint": {
+      "type": "string",
+      "value": "[reference(concat('Microsoft.Web/sites/',variables('apiServiceName'),'/slots/deploy'), '2018-02-01').defaultHostName]"
+    }
+  }
+}

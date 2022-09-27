@@ -1,0 +1,110 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environment": {
+      "type": "string",
+      "allowedValues": [ "Dev", "Test", "Acc", "Prod" ]
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]"
+    },
+    "locationCode": {
+      "type": "string"
+    },
+    "developerSuffix": {
+      "type": "string",
+      "defaultValue": ""
+    },
+    "servicePrefix": {
+      "type": "string",
+      "defaultValue": "CompanyName-"
+    },
+    "administratorLogin": {
+      "type": "string",
+      "metadata": {
+        "description": "The administrator username of the SQL logical server."
+      }
+    },
+    "administratorLoginPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "The administrator password of the SQL logical server."
+      }
+    }
+  },
+  "variables": {
+    "serverNamePrefix": "[concat(parameters('servicePrefix'),parameters('environment'),parameters('developerSuffix'),'-')]",
+    "serverName": "[tolower(concat(variables('serverNamePrefix'),parameters('locationCode')))]",
+    "elasticPoolname": "CompanyName-Pool"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Sql/servers",
+      "apiVersion": "2020-02-02-preview",
+      "name": "[variables('serverName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "administratorLogin": "[parameters('administratorLogin')]",
+        "administratorLoginPassword": "[parameters('administratorLoginPassword')]"
+      }
+    },
+    {
+
+      "type": "Microsoft.Sql/servers/firewallRules",
+      "kind": "v12.0",
+      "name": "[concat(variables('serverName'), '/', 'AllowAllAzureServices')]",
+      "apiVersion": "2014-04-01",
+      "location": "[parameters('location')]",
+      "scale": null,
+      "properties": {
+          "startIpAddress": "0.0.0.0",
+          "endIpAddress": "0.0.0.0"
+      },
+      "dependsOn": [
+          "[resourceId('Microsoft.Sql/servers', variables('serverName'))]"
+      ]
+    }/*,
+    {
+      "apiVersion": "2014-04-01",
+      "dependsOn": [
+        "[concat('Microsoft.Sql/servers/', variables('serverName'))]"
+      ],
+      "location": "[parameters('location')]",
+      "name": "[concat(variables('serverName'), '/', variables('elasticPoolName'))]",
+      "properties": {
+        "edition": "[parameters('edition')]",
+        "dtu": "[parameters('poolDtu')]",
+        "databaseDtuMin": "[parameters('databaseDtuMin')]",
+        "databaseDtuMax": "[parameters('databaseDtuMax')]"
+      },
+      "type": "Microsoft.Sql/servers/elasticPools"
+    },
+    {
+      "type": "Microsoft.Sql/servers/databases",
+      "name": "[concat(variables('serverName'), '/', parameters('databasesNames')[copyIndex()])]",
+      "location": "[parameters('location')]",
+      "apiVersion": "2014-04-01-preview",
+      "dependsOn": [
+        "[concat('Microsoft.Sql/servers/', variables('serverName'))]",
+        "[concat('Microsoft.Sql/servers/', variables('serverName') ,'/elasticpools/', variables('elasticPoolName'))]"
+      ],
+      "properties": {
+        "collation": "[parameters('databaseCollation')]",
+        "requestedServiceObjectiveName": "ElasticPool",
+        "elasticPoolName": "[variables('elasticPoolName')]"
+      },
+      "copy": {
+        "name": "addDatabasesInElasticPool",
+        "count": "[length(parameters('databasesNames'))]"
+      }
+    }*/
+  ],
+  "outputs": {
+    "connectionString": {
+      "type": "string",
+      "value": "empty"
+    }
+  }
+}
