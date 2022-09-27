@@ -14,8 +14,8 @@ It will deploy environments for the following azure services:
 
 ## Getting Started
 When you use this code for the first time search and replace these things:
-Comp with your company prefix (short name)
-CompanyName with your company name (longer name)
+  *  `Comp` with your company prefix (short name)
+  *  `CompanyName` with your company name (longer name, but not EXTREMELY long :))
 
 Also search for putyourpassword and replace it with your passwords (make them different per environment and datasource) 
 For auth0 search for Username-Password-Authentication and replace it with your own (if its different)
