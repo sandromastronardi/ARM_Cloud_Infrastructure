@@ -75,7 +75,7 @@
     }
   },
   "variables": {
-    "webHook": "https://companyname.webhook.office.com/webhookb2/8cf2adae-f9b8-4abf-8acb-58615902586a@13e80e00-6b4e-4d2f-b1a5-d3a7048e8d5a/IncomingWebhook/755a2e47973d4c198dfbfc310932b499/608e93fb-e2cd-47bf-ac58-2d5996d9ca50",
+    "webHook": "https://companyname.webhook.office.com/webhookb2/00000000-0000-0000-0000-000000000000@00000000-0000-0000-0000-000000000000/IncomingWebhook/00000000000000000000000000000000/00000000-0000-0000-0000-000000000000",
     "appNamePrefix": "[concat('Comp-',parameters('environment'),parameters('developerSuffix'),'-',parameters('appName'))]",
     "functionAppName": "[concat( variables('appNamePrefix'), '-', 'func')]",
     "appServicePlanName": "[concat(variables('appNamePrefix'), '-', 'ASP')]",
